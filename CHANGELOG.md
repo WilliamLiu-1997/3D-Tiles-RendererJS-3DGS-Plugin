@@ -7,6 +7,18 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-04-17
+
+### Fixed
+
+- Corrected the package repository, homepage, and issue tracker URLs to match
+  the actual GitHub repository so npm metadata and trusted publishing resolve
+  against the right repo.
+- Added an npm publish workflow for tag-based releases and updated it to use
+  `npm publish --access public`.
+- Upgraded the publish workflow to use Node.js 24 and npm 11.10.0+ so Trusted
+  Publishing runs against a supported CLI/runtime combination.
+
 ## [0.1.0] - 2026-04-17
 
 ### Added
