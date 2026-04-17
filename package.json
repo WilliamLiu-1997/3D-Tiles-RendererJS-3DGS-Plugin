@@ -2,7 +2,7 @@
   "name": "3d-tiles-rendererjs-3dgs-plugin",
   "version": "0.1.0",
   "description": "Gaussian splat tile plugin for 3d-tiles-renderer backed by Spark.",
-  "author": "William Liu <77861330+WilliamLiu-1997@users.noreply.github.com>",
+  "author": "William Liu <lyz15972107087@gmail.com>",
   "type": "module",
   "license": "Apache-2.0",
   "sideEffects": false,
@@ -11,6 +11,7 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
+    "CHANGELOG.md",
     "LICENSE",
     "README.md"
   ],

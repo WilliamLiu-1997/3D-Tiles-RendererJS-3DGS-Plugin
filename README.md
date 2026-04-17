@@ -17,6 +17,7 @@ compatibility.
 
 ## Features
 
+- Supports both explicit and implicit 3D Tiles tiling schemes
 - Supports `gltf` and `glb` tile payloads containing compressed Gaussian splats
 - Builds `SplatMesh` instances from SPZ-compressed primitive data
 - Shares one Spark renderer per scene / WebGLRenderer pair
@@ -120,13 +121,16 @@ imageryTiles.addEventListener('load-model', ({ scene: modelScene }) => {
 
 ## Supported Content
 
-This plugin only intercepts tile payloads when all of the following are true:
+This plugin supports both explicit and implicit tiling tilesets, but it only
+intercepts tile payloads when all of the following are true:
 
 - The tile content is `gltf` or `glb`
 - The glTF scene contains `KHR_gaussian_splatting`
 - Each Gaussian primitive uses `KHR_gaussian_splatting_compression_spz_2`
 
-Raw, uncompressed Gaussian primitives are rejected intentionally.
+`KHR_gaussian_splatting_compression_spz_2` is the only supported Gaussian
+compression path at the moment. Raw, uncompressed Gaussian primitives and other
+compression schemes are rejected intentionally.
 
 ## API
 
@@ -175,6 +179,10 @@ and `gaussianSplat1` (explicit tiling). Both are wired into a single demo page
 at [examples/index.html](examples/index.html) that uses
 [`lil-gui`](https://lil-gui.georgealways.com/) to switch between them at runtime
 and to recentre the camera on the current tileset.
+
+The sample data in [data/](data/) was converted from PLY-format 3D Gaussian
+Splatting files with
+[`3DGS-PLY-3DTiles-Converter`](https://github.com/WilliamLiu-1997/3DGS-PLY-3DTiles-Converter).
 
 The page composes the splat tileset on top of an ArcGIS World Imagery globe
 served through `XYZTilesPlugin` so the Gaussian content sits in a real ECEF
