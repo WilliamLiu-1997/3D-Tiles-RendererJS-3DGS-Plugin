@@ -1,8 +1,14 @@
+<div align="center">
+
 # 3d-tiles-rendererjs-3dgs-plugin
 
 [![npm version](https://img.shields.io/npm/v/3d-tiles-rendererjs-3dgs-plugin)](https://www.npmjs.com/package/3d-tiles-rendererjs-3dgs-plugin)
 [![CI](https://github.com/WilliamLiu-1997/3DTilesRendererJS-3DGS-Plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/WilliamLiu-1997/3DTilesRendererJS-3DGS-Plugin/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
+<img src="https://raw.githubusercontent.com/WilliamLiu-1997/3DTilesRendererJS-3DGS-Plugin/main/3D-Tiles-RendererJS-3DGS-Plugin.png" alt="3D-Tiles-RendererJS-3DGS-Plugin" width="960" />
+
+</div>
 
 `3d-tiles-rendererjs-3dgs-plugin` adds Gaussian splat tile support to
 [`3d-tiles-renderer`](https://www.npmjs.com/package/3d-tiles-renderer) by
