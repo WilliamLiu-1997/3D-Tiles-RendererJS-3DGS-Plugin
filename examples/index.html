@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>3D Tiles Renderer Gaussian Splat Plugin Examples</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="info">
+      Left-drag to orbit · right-drag to pan · scroll to zoom.
+    </div>
+    <script type="module">
+      import GUI from 'three/examples/jsm/libs/lil-gui.module.min.js';
+      import { runExample } from './shared/viewer.js';
+
+      const tilesets = [
+        { name: 'gaussianSplat (implicit tiling)', url: '/gaussianSplat/tileset.json' },
+        { name: 'gaussianSplat1 (explicit tiling)', url: '/gaussianSplat1/tileset.json' },
+      ];
+
+      const viewer = runExample({ tilesets });
+
+      const state = {
+        tileset: tilesets[0].name,
+        moveToTileset: () => viewer.moveToTileset(),
+      };
+      const nameToUrl = Object.fromEntries(tilesets.map((t) => [t.name, t.url]));
+
+      const gui = new GUI({ title: 'Tilesets' });
+      gui
+        .add(state, 'tileset', tilesets.map((t) => t.name))
+        .name('Tileset')
+        .onChange((name) => viewer.switchTileset(nameToUrl[name]));
+      gui.add(state, 'moveToTileset').name('Move to tileset');
+    </script>
+  </body>
+</html>

@@ -1,0 +1,37 @@
+name: Feature request
+description: Propose a new capability or integration improvement for the plugin.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to do that is difficult or unsupported today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the API, rendering behavior, plugin hook, or tooling change you want.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+
+  - type: textarea
+    id: integration_context
+    attributes:
+      label: Integration context
+      description: Include any relevant details about your `three.js`, `3d-tiles-renderer`, or Spark setup.
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context

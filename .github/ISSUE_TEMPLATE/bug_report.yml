@@ -1,0 +1,107 @@
+name: Bug report
+description: Report a reproducible defect in the plugin, demo integration, or rendered output.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please include the package versions, the browser/runtime, and enough detail to reproduce the issue.
+
+  - type: input
+    id: plugin_version
+    attributes:
+      label: Plugin version
+      description: The npm package version or commit you are using.
+      placeholder: 0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: three_version
+    attributes:
+      label: three.js version
+      placeholder: 0.180.0
+    validations:
+      required: true
+
+  - type: input
+    id: tiles_renderer_version
+    attributes:
+      label: 3d-tiles-renderer version
+      placeholder: 0.4.24
+    validations:
+      required: true
+
+  - type: input
+    id: spark_version
+    attributes:
+      label: Spark version
+      placeholder: 2.0.0
+    validations:
+      required: true
+
+  - type: input
+    id: runtime
+    attributes:
+      label: Browser / runtime
+      description: For example Chrome 135, Firefox 137, or a specific framework/runtime setup.
+      placeholder: Chrome 135 on Windows 11
+    validations:
+      required: true
+
+  - type: dropdown
+    id: usage_mode
+    attributes:
+      label: Usage mode
+      options:
+        - Library integration
+        - Example viewer
+        - Both
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction snippet
+      description: Include the relevant setup code or the exact steps needed to reproduce.
+      render: ts
+      placeholder: |
+        const tiles = new TilesRenderer(url);
+        tiles.registerPlugin(new GaussianSplatPlugin({ renderer, scene }));
+    validations:
+      required: true
+
+  - type: textarea
+    id: tileset_details
+    attributes:
+      label: Tileset / content details
+      description: Describe the source tileset, extensions used, compression details, or provide a minimal repro link if shareable.
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console output or logs
+      render: text
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or videos
+      description: Horizon sorting or transparency bugs are much easier to diagnose with captures.

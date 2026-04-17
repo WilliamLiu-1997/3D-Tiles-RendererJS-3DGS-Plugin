@@ -1,0 +1,69 @@
+{
+  "name": "3d-tiles-rendererjs-3dgs-plugin",
+  "version": "0.1.0",
+  "description": "Gaussian splat tile plugin for 3d-tiles-renderer backed by Spark.",
+  "author": "William Liu <77861330+WilliamLiu-1997@users.noreply.github.com>",
+  "type": "module",
+  "license": "Apache-2.0",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "check": "tsc --noEmit",
+    "test": "npm run check",
+    "start": "vite",
+    "build-examples": "vite build",
+    "prepack": "npm run check && npm run build",
+    "pack:check": "npm pack --dry-run",
+    "release:check": "npm test && npm run build-examples && npm run pack:check"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WilliamLiu-1997/3DTilesRendererJS-3DGS-Plugin.git"
+  },
+  "homepage": "https://github.com/WilliamLiu-1997/3DTilesRendererJS-3DGS-Plugin#readme",
+  "bugs": {
+    "url": "https://github.com/WilliamLiu-1997/3DTilesRendererJS-3DGS-Plugin/issues"
+  },
+  "keywords": [
+    "3d-tiles",
+    "3d-tiles-renderer",
+    "gaussian-splatting",
+    "three.js",
+    "spark",
+    "three",
+    "3dgs",
+    "ecef",
+    "typescript"
+  ],
+  "peerDependencies": {
+    "@sparkjsdev/spark": "^2.0.0",
+    "3d-tiles-renderer": "^0.4.24",
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@sparkjsdev/spark": "^2.0.0",
+    "@types/three": "^0.180.0",
+    "3d-tiles-renderer": "^0.4.24",
+    "three": "^0.180.0",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3",
+    "vite": "^6.4.2"
+  }
+}
