@@ -94,7 +94,10 @@ an entire splat set at once.
 To avoid that artifact:
 
 - Prefer globe materials with `transparent = false` and `depthWrite = true`
-- Or render the globe and splats in separate passes if the globe must stay transparent
+- Or use separate render passes for the globe and splats if the globe must stay transparent
+
+Using a separate render pass for the splats is also a valid approach when you
+need to keep the globe in a transparent pipeline.
 
 For example, the demo forces each imagery tile back into the opaque pass when
 it loads:
@@ -124,6 +127,56 @@ imageryTiles.addEventListener('load-model', ({ scene: modelScene }) => {
   });
 });
 ```
+
+If you prefer explicit pass ordering instead, split the globe and splats into
+different scenes and render them sequentially without clearing depth between
+passes:
+
+```ts
+const globeScene = new Scene();
+const splatScene = new Scene();
+
+const imageryTiles = new TilesRenderer(
+  'https://example.com/imagery/tileset.json',
+);
+imageryTiles.setCamera(camera);
+imageryTiles.setResolutionFromRenderer(camera, renderer);
+imageryTiles.registerPlugin(
+  new XYZTilesPlugin({
+    shape: 'ellipsoid',
+    center: true,
+    levels: 18,
+    url: '...',
+  }),
+);
+globeScene.add(imageryTiles.group);
+
+const splatTiles = new TilesRenderer('https://example.com/splats/tileset.json');
+splatTiles.setCamera(camera);
+splatTiles.setResolutionFromRenderer(camera, renderer);
+splatTiles.registerPlugin(
+  new GaussianSplatPlugin({ renderer, scene: splatScene }),
+);
+splatScene.add(splatTiles.group);
+
+renderer.autoClear = false;
+
+function frame() {
+  imageryTiles.update();
+  splatTiles.update();
+
+  renderer.clear();
+  renderer.render(globeScene, camera);
+  renderer.render(splatScene, camera);
+
+  requestAnimationFrame(frame);
+}
+
+frame();
+```
+
+This keeps the globe and splats out of the same transparent sort queue while
+still letting the globe depth buffer occlude splats behind the horizon.
 
 ## Supported Content
 
