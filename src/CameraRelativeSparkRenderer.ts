@@ -21,6 +21,9 @@ const _cameraWorldPosition = new Vector3();
 const _cameraWorldDirection = new Vector3();
 const _cameraPositionEpsilonSq = 1e-6;
 const _cameraDirectionDotThreshold = 1 - 1e-3;
+// Sentinel written for GaussianSplatScene nodes (no opacity of their own);
+// real splats report opacity >= 0, so -1 is safe as "scene-only presence".
+const _splatSceneStateSentinel = -1;
 
 type RebasedGaussianRoot = {
   target: Object3D;
@@ -43,8 +46,8 @@ export class CameraRelativeSparkRenderer extends SparkRenderer {
   #lastCameraPosition = new Vector3();
   #lastCameraDirection = new Vector3();
   #hasLastCameraPose = false;
-  #lastSplatUUIDs = new Set<string>();
-  #currentSplatUUIDs = new Set<string>();
+  #lastSplatStates = new Map<string, number>();
+  #currentSplatStates = new Map<string, number>();
 
   #rebasedRootsPool: RebasedGaussianRoot[] = [];
   #rebasedRootsCount = 0;
@@ -87,7 +90,7 @@ export class CameraRelativeSparkRenderer extends SparkRenderer {
         const cameraWorldSnapshot = camera.matrixWorld.clone();
         const cameraPositionSnapshot = _cameraWorldPosition.clone();
         const cameraDirectionSnapshot = _cameraWorldDirection.clone();
-        const splatUUIDsSnapshot = new Set(this.#currentSplatUUIDs);
+        const splatStatesSnapshot = new Map(this.#currentSplatStates);
 
         void this.update({
           scene,
@@ -113,10 +116,9 @@ export class CameraRelativeSparkRenderer extends SparkRenderer {
           this.#lastCameraDirection.copy(cameraDirectionSnapshot);
           this.#hasLastCameraPose = true;
 
-          this.#lastSplatUUIDs.clear();
-          for (const uuid of splatUUIDsSnapshot) {
-            this.#lastSplatUUIDs.add(uuid);
-          }
+          // Transfer ownership: snapshot was just built from current, and no
+          // further writes are expected before the next rebase.
+          this.#lastSplatStates = splatStatesSnapshot;
         }
       }
     } finally {
@@ -135,13 +137,14 @@ export class CameraRelativeSparkRenderer extends SparkRenderer {
       _cameraWorldDirection.dot(this.#lastCameraDirection) <
         _cameraDirectionDotThreshold;
 
-    const current = this.#currentSplatUUIDs;
-    const last = this.#lastSplatUUIDs;
+    const current = this.#currentSplatStates;
+    const last = this.#lastSplatStates;
 
     let splatsChanged = current.size !== last.size;
     if (!splatsChanged) {
-      for (const uuid of current) {
-        if (!last.has(uuid)) {
+      for (const [uuid, state] of current) {
+        // Covers both "uuid missing" (get → undefined) and opacity mismatch.
+        if (last.get(uuid) !== state) {
           splatsChanged = true;
           break;
         }
@@ -202,15 +205,19 @@ export class CameraRelativeSparkRenderer extends SparkRenderer {
 
   #rebaseGaussianRoots(scene: Scene, camera: Camera): number {
     this.#rebasedRootsCount = 0;
-    this.#currentSplatUUIDs.clear();
+    this.#currentSplatStates.clear();
     _cameraInverseWorldMatrix.copy(camera.matrixWorld).invert();
 
     scene.traverseVisible((node) => {
-      if (!isGaussianSplat(node) && !isGaussianSplatScene(node)) {
+      const isSplat = isGaussianSplat(node);
+      if (!isSplat && !isGaussianSplatScene(node)) {
         return;
       }
 
-      this.#currentSplatUUIDs.add(node.uuid);
+      this.#currentSplatStates.set(
+        node.uuid,
+        isSplat ? node.opacity : _splatSceneStateSentinel,
+      );
 
       // Only rebase top-level splat roots
       if (
