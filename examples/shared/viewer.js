@@ -118,6 +118,13 @@ export function runExample({ tilesets, initial = 0 }) {
     next.registerPlugin(new GaussianSplatPlugin({ renderer, scene }));
     next.setCamera(camera);
     next.setResolutionFromRenderer(camera, renderer);
+
+    const lruCache = next.lruCache;
+    lruCache.minSize = 256;
+    lruCache.maxSize = 4096;
+    lruCache.minBytesSize = 0.2 * 2 ** 30;
+    lruCache.maxBytesSize = 2 * 2 ** 30;
+    lruCache.unloadPercent = 0.1;
     scene.add(next.group);
 
     let framed = false;
