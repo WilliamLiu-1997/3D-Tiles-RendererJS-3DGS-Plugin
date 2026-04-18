@@ -7,6 +7,14 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-04-19
+
+### Fixed
+
+- Updated camera-relative Spark invalidation to track Gaussian splat node
+  state, not just UUID presence, so opacity changes and GaussianSplatScene-only
+  visibility changes correctly trigger a refresh.
+
 ## [0.1.1] - 2026-04-17
 
 ### Fixed

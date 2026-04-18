@@ -88,9 +88,6 @@ export class CameraRelativeSparkRenderer extends SparkRenderer {
         const prevCurrent = this.current;
 
         const cameraWorldSnapshot = camera.matrixWorld.clone();
-        const cameraPositionSnapshot = _cameraWorldPosition.clone();
-        const cameraDirectionSnapshot = _cameraWorldDirection.clone();
-        const splatStatesSnapshot = new Map(this.#currentSplatStates);
 
         void this.update({
           scene,
@@ -112,13 +109,10 @@ export class CameraRelativeSparkRenderer extends SparkRenderer {
         }
 
         if (updateAccepted) {
-          this.#lastCameraPosition.copy(cameraPositionSnapshot);
-          this.#lastCameraDirection.copy(cameraDirectionSnapshot);
+          this.#lastCameraPosition.copy(_cameraWorldPosition);
+          this.#lastCameraDirection.copy(_cameraWorldDirection);
           this.#hasLastCameraPose = true;
-
-          // Transfer ownership: snapshot was just built from current, and no
-          // further writes are expected before the next rebase.
-          this.#lastSplatStates = splatStatesSnapshot;
+          this.#lastSplatStates = new Map(this.#currentSplatStates);
         }
       }
     } finally {
