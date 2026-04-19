@@ -233,8 +233,8 @@ npm run build
 
 ## Examples
 
-Two sample tilesets live under [data/](data/) — `gaussianSplat` (implicit tiling)
-and `gaussianSplat1` (explicit tiling). Both are wired into a single demo page
+Two sample tilesets live under [data/](data/) — `gaussianSplat1` (implicit tiling)
+and `gaussianSplat2` (explicit tiling). Both are wired into a single demo page
 at [examples/index.html](examples/index.html) that uses
 [`lil-gui`](https://lil-gui.georgealways.com/) to switch between them at runtime
 and to recentre the camera on the current tileset.

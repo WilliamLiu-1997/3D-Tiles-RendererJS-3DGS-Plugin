@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
@@ -15,8 +15,14 @@
       import { runExample } from './shared/viewer.js';
 
       const tilesets = [
-        { name: 'gaussianSplat (implicit tiling)', url: '/gaussianSplat/tileset.json' },
-        { name: 'gaussianSplat1 (explicit tiling)', url: '/gaussianSplat1/tileset.json' },
+        {
+          name: 'gaussianSplat1 (implicit tiling)',
+          url: '/gaussianSplat1/tileset.json',
+        },
+        {
+          name: 'gaussianSplat2 (explicit tiling)',
+          url: '/gaussianSplat2/tileset.json',
+        },
       ];
 
       const viewer = runExample({ tilesets });
@@ -25,11 +31,17 @@
         tileset: tilesets[0].name,
         moveToTileset: () => viewer.moveToTileset(),
       };
-      const nameToUrl = Object.fromEntries(tilesets.map((t) => [t.name, t.url]));
+      const nameToUrl = Object.fromEntries(
+        tilesets.map((t) => [t.name, t.url]),
+      );
 
       const gui = new GUI({ title: 'Tilesets' });
       gui
-        .add(state, 'tileset', tilesets.map((t) => t.name))
+        .add(
+          state,
+          'tileset',
+          tilesets.map((t) => t.name),
+        )
         .name('Tileset')
         .onChange((name) => viewer.switchTileset(nameToUrl[name]));
       gui.add(state, 'moveToTileset').name('Move to tileset');
