@@ -7,6 +7,15 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-04-20
+
+### Fixed
+
+- Updated camera-relative Spark invalidation to snapshot Gaussian splat world
+  transforms and opacity, so rebased splat movement now triggers a refresh.
+- Continued the Spark update check for one frame after rebasing ends, which
+  prevents stale accumulation state when camera-relative splats disappear.
+
 ## [0.1.2] - 2026-04-19
 
 ### Fixed
