@@ -7,6 +7,12 @@ Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Reworked camera-relative Spark invalidation to update immediately from
+  camera pose and per-splat world-state snapshots, so transform, opacity,
+  removal, and rebase-state changes no longer leave stale splat data behind.
+
 ## [0.1.2] - 2026-04-19
 
 ### Fixed

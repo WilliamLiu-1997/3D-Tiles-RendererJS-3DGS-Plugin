@@ -3,10 +3,11 @@ import {
   Camera,
   Matrix4,
   Object3D,
+  Vector3,
   type Scene,
   type WebGLRenderer,
 } from 'three';
-import { isGaussianSplat, isGaussianSplatScene } from './GaussianSplatPlugin';
+import { isGaussianSplat } from './GaussianSplatPlugin';
 
 const _identityMatrix = new Matrix4();
 const _cameraInverseWorldMatrix = new Matrix4();
@@ -16,10 +17,20 @@ const _rebasedLocalMatrix = new Matrix4();
 const _displayFrameInverseWorldMatrix = new Matrix4();
 const _relativeRenderCameraMatrix = new Matrix4();
 
+const _cameraWorldPosition = new Vector3();
+const _cameraWorldDirection = new Vector3();
+const _cameraPositionEpsilonSq = 1e-6;
+const _cameraDirectionDotThreshold = 1 - 1e-3;
+
 type RebasedGaussianRoot = {
   target: Object3D;
   originalMatrix: Matrix4;
   originalMatrixAutoUpdate: boolean;
+};
+
+type SplatStateSnapshot = {
+  opacity: number;
+  matrixWorld: Matrix4;
 };
 
 function ensureCameraClone(cached: Camera | null, source: Camera): Camera {
@@ -30,18 +41,41 @@ function ensureCameraClone(cached: Camera | null, source: Camera): Camera {
   return cached;
 }
 
+function cloneSplatStateSnapshot(
+  node: Object3D,
+  opacity: number,
+): SplatStateSnapshot {
+  return {
+    opacity,
+    matrixWorld: node.matrixWorld.clone(),
+  };
+}
+
+function areSplatStatesEqual(
+  a: SplatStateSnapshot | undefined,
+  b: SplatStateSnapshot | undefined,
+) {
+  return (
+    a === b ||
+    Boolean(
+      a && b && a.opacity === b.opacity && a.matrixWorld.equals(b.matrixWorld),
+    )
+  );
+}
+
 export class CameraRelativeSparkRenderer extends SparkRenderer {
   #updateCamera: Camera | null = null;
   #renderCamera: Camera | null = null;
 
-  #pendingUpdateScene: Scene | null = null;
-  #pendingUpdateCamera: Camera | null = null;
-  #updateTimeoutId: ReturnType<typeof setTimeout> | null = null;
-  #updateInFlight = false;
-  #updateRequested = false;
+  #lastCameraPosition = new Vector3();
+  #lastCameraDirection = new Vector3();
+  #hasLastCameraPose = false;
+  #lastSplatStates = new Map<string, SplatStateSnapshot>();
+  #currentSplatStates = new Map<string, SplatStateSnapshot>();
 
   #rebasedRootsPool: RebasedGaussianRoot[] = [];
   #rebasedRootsCount = 0;
+  #hadRebasedLastFrame = false;
 
   constructor(renderer: WebGLRenderer) {
     super({
@@ -68,81 +102,79 @@ export class CameraRelativeSparkRenderer extends SparkRenderer {
     const hasRebased = rebasedCount > 0;
 
     try {
+      if (
+        (hasRebased || this.#hadRebasedLastFrame) &&
+        this.#shouldUpdate(camera)
+      ) {
+        const updateCamera = this.#getUpdateCamera(camera);
+        const prevDisplay = this.display;
+        const prevCurrent = this.current;
+
+        const cameraWorldSnapshot = camera.matrixWorld.clone();
+
+        void this.update({
+          scene,
+          camera: updateCamera,
+        });
+
+        const updateAccepted =
+          this.current !== prevCurrent || this.display !== prevDisplay;
+
+        // Spark receives an identity-rebased camera, so it writes identity
+        // into accumulator.viewToWorld. Overwrite it back to the real world
+        // frame that these camera-local splats actually correspond to.
+        if (this.current !== prevCurrent) {
+          this.current.viewToWorld.copy(cameraWorldSnapshot);
+        }
+
+        if (this.display !== prevDisplay) {
+          this.display.viewToWorld.copy(cameraWorldSnapshot);
+        }
+
+        if (updateAccepted) {
+          this.#lastCameraPosition.copy(_cameraWorldPosition);
+          this.#lastCameraDirection.copy(_cameraWorldDirection);
+          this.#hasLastCameraPose = true;
+          this.#lastSplatStates = new Map(this.#currentSplatStates);
+        }
+      }
+      this.#hadRebasedLastFrame = hasRebased;
+
       // Build a relative camera from the display's world frame
       // instead of always passing the identity-rebased camera.
       const renderCamera = hasRebased ? this.#getRenderCamera(camera) : camera;
       super.onBeforeRender(renderer, scene, renderCamera);
-
-      if (hasRebased) {
-        this.#scheduleUpdate(scene, camera);
-      }
     } finally {
       this.#restoreGaussianRoots();
     }
   }
 
-  #scheduleUpdate(scene: Scene, camera: Camera) {
-    this.#pendingUpdateScene = scene;
-    this.#pendingUpdateCamera = camera;
-    this.#updateRequested = true;
+  #shouldUpdate(camera: Camera) {
+    camera.getWorldPosition(_cameraWorldPosition);
+    camera.getWorldDirection(_cameraWorldDirection);
 
-    if (this.#updateTimeoutId !== null || this.#updateInFlight) {
-      return;
-    }
+    const poseChanged =
+      !this.#hasLastCameraPose ||
+      _cameraWorldPosition.distanceToSquared(this.#lastCameraPosition) >
+        _cameraPositionEpsilonSq ||
+      _cameraWorldDirection.dot(this.#lastCameraDirection) <
+        _cameraDirectionDotThreshold;
 
-    this.#updateTimeoutId = setTimeout(() => {
-      this.#updateTimeoutId = null;
-      void this.#flushScheduledUpdate();
-    }, 0);
-  }
+    const current = this.#currentSplatStates;
+    const last = this.#lastSplatStates;
 
-  async #flushScheduledUpdate() {
-    if (this.#updateInFlight || !this.#updateRequested) {
-      return;
-    }
-
-    const scene = this.#pendingUpdateScene;
-    const camera = this.#pendingUpdateCamera;
-    if (!scene || !camera) {
-      return;
-    }
-
-    this.#updateRequested = false;
-    this.#updateInFlight = true;
-
-    try {
-      camera.updateMatrixWorld(true);
-
-      const updateCamera = this.#getUpdateCamera(camera);
-      const prevDisplay = this.display;
-      const prevCurrent = this.current;
-      const cameraWorldSnapshot = camera.matrixWorld.clone();
-
-      await this.update({
-        scene,
-        camera: updateCamera,
-      });
-
-      // Spark receives an identity-rebased camera, so it writes identity
-      // into accumulator.viewToWorld. Overwrite it back to the real world
-      // frame that these camera-local splats actually correspond to.
-      if (this.current !== prevCurrent) {
-        this.current.viewToWorld.copy(cameraWorldSnapshot);
-      }
-
-      if (this.display !== prevDisplay) {
-        this.display.viewToWorld.copy(cameraWorldSnapshot);
-      }
-    } finally {
-      this.#updateInFlight = false;
-
-      if (this.#updateRequested && this.#updateTimeoutId === null) {
-        this.#updateTimeoutId = setTimeout(() => {
-          this.#updateTimeoutId = null;
-          void this.#flushScheduledUpdate();
-        }, 0);
+    let splatsChanged = current.size !== last.size;
+    if (!splatsChanged) {
+      for (const [uuid, state] of current) {
+        // Covers both "uuid missing" (get → undefined) and opacity mismatch.
+        if (!areSplatStatesEqual(state, last.get(uuid))) {
+          splatsChanged = true;
+          break;
+        }
       }
     }
+
+    return poseChanged || splatsChanged;
   }
 
   /**
@@ -196,18 +228,22 @@ export class CameraRelativeSparkRenderer extends SparkRenderer {
 
   #rebaseGaussianRoots(scene: Scene, camera: Camera): number {
     this.#rebasedRootsCount = 0;
+    this.#currentSplatStates.clear();
     _cameraInverseWorldMatrix.copy(camera.matrixWorld).invert();
 
     scene.traverseVisible((node) => {
-      if (!isGaussianSplat(node) && !isGaussianSplatScene(node)) {
+      const isSplat = isGaussianSplat(node);
+      if (!isSplat) {
         return;
       }
 
-      // Only rebase top-level splat roots
-      if (
-        node.parent &&
-        (isGaussianSplat(node.parent) || isGaussianSplatScene(node.parent))
-      ) {
+      this.#currentSplatStates.set(
+        node.uuid,
+        cloneSplatStateSnapshot(node, node.opacity),
+      );
+
+      // Only rebase top-level splat meshes.
+      if (node.parent && isGaussianSplat(node.parent)) {
         return;
       }
 
