@@ -55,7 +55,7 @@ import { Scene, PerspectiveCamera, WebGLRenderer } from 'three';
 import { TilesRenderer } from '3d-tiles-renderer';
 import { GaussianSplatPlugin } from '3d-tiles-rendererjs-3dgs-plugin';
 
-const renderer = new WebGLRenderer({ antialias: true });
+const renderer = new WebGLRenderer({ antialias: false });
 const scene = new Scene();
 const camera = new PerspectiveCamera(
   60,
