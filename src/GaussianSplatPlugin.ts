@@ -1,4 +1,4 @@
-import { SplatMesh } from '@sparkjsdev/spark';
+import { SplatMesh, type SparkRendererOptions } from '@sparkjsdev/spark';
 import { Group, Matrix4, Object3D, WebGLRenderer, type Scene } from 'three';
 import type { Tile, TilesRenderer } from '3d-tiles-renderer';
 import {
@@ -36,7 +36,37 @@ type TilesRendererWithHooks = TilesRenderer & {
   ): T | null;
 };
 
-export type GaussianSplatPluginHost = { renderer: WebGLRenderer; scene: Scene };
+export const SPARK_RENDERER_OPTION_KEYS = [
+  'encodeLinear',
+  'maxStdDev',
+  'minPixelRadius',
+  'maxPixelRadius',
+  'accumExtSplats',
+  'minAlpha',
+  'enable2DGS',
+  'preBlurAmount',
+  'blurAmount',
+  'clipXY',
+  'focalAdjustment',
+  'sortRadial',
+  'minSortIntervalMs',
+  'depthTest',
+  'depthWrite',
+] as const;
+
+export type SupportedSparkRendererOptionKey =
+  (typeof SPARK_RENDERER_OPTION_KEYS)[number];
+
+export type SupportedSparkRendererOptions = Pick<
+  SparkRendererOptions,
+  SupportedSparkRendererOptionKey
+>;
+
+export type GaussianSplatPluginHost = {
+  renderer: WebGLRenderer;
+  scene: Scene;
+  sparkRendererOptions?: SupportedSparkRendererOptions;
+};
 
 type GaussianSplatSceneGroup = Group & {
   userData: {

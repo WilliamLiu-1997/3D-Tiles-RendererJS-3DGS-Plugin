@@ -7,7 +7,10 @@ import {
   type Scene,
   type WebGLRenderer,
 } from 'three';
-import { isGaussianSplat } from './GaussianSplatPlugin';
+import {
+  isGaussianSplat,
+  type SupportedSparkRendererOptions,
+} from './GaussianSplatPlugin';
 
 const _identityMatrix = new Matrix4();
 const _cameraInverseWorldMatrix = new Matrix4();
@@ -77,14 +80,15 @@ export class CameraRelativeSparkRenderer extends SparkRenderer {
   #rebasedRootsCount = 0;
   #hadRebasedLastFrame = false;
 
-  constructor(renderer: WebGLRenderer) {
+  constructor(
+    renderer: WebGLRenderer,
+    options: SupportedSparkRendererOptions = {},
+  ) {
     super({
+      ...options,
       renderer,
       autoUpdate: false,
       preUpdate: false,
-      accumExtSplats: false,
-      pagedExtSplats: true,
-      blurAmount: 0.2,
     });
 
     this.matrixAutoUpdate = false;

@@ -7,6 +7,29 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-04-22
+
+### Added
+
+- Added optional `sparkRendererOptions` on the `GaussianSplatPlugin` host so
+  callers can forward a supported subset of Spark renderer settings into the
+  shared camera-relative Spark renderer.
+
+### Changed
+
+- Shared Spark renderer setup now normalizes tracked option values and keeps
+  `focalAdjustment: 2` as the plugin default while leaving other unspecified
+  settings on Spark defaults.
+- When multiple `GaussianSplatPlugin` instances reuse the same `Scene` /
+  `WebGLRenderer` pair, explicit `sparkRendererOptions` from later instances
+  are merged into the existing shared renderer instead of being ignored.
+
+### Fixed
+
+- Avoided dirtying the shared Spark renderer when a later plugin instance
+  repeats the renderer's current option value for a key that was not previously
+  tracked by the manager.
+
 ## [0.1.3] - 2026-04-20
 
 ### Fixed

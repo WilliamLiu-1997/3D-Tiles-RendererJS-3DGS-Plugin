@@ -1,6 +1,10 @@
 import { WebGLRenderer, type Scene } from 'three';
 import type { TilesRenderer } from '3d-tiles-renderer';
-import type { GaussianSplatPluginHost } from './GaussianSplatPlugin';
+import {
+  SPARK_RENDERER_OPTION_KEYS,
+  type GaussianSplatPluginHost,
+  type SupportedSparkRendererOptions,
+} from './GaussianSplatPlugin';
 import { CameraRelativeSparkRenderer } from './CameraRelativeSparkRenderer';
 
 const _sharedSparkManagersByScene = new WeakMap<
@@ -11,9 +15,38 @@ const _sharedSparkManagersByRenderer = new WeakMap<
   WebGLRenderer,
   SharedSparkRendererManager
 >();
+
+type NormalizedSparkRendererOptions = SupportedSparkRendererOptions;
+
+const CUSTOM_DEFAULT_OPTIONS: NormalizedSparkRendererOptions = {
+  focalAdjustment: 2,
+};
+
+function normalizeSparkRendererOptions(
+  host: GaussianSplatPluginHost,
+  includeCustomDefaults = true,
+) {
+  const source = (host.sparkRendererOptions ?? {}) as Record<string, unknown>;
+  const defaults = CUSTOM_DEFAULT_OPTIONS as Record<string, unknown>;
+  const normalized: Record<string, unknown> = {};
+  for (const key of SPARK_RENDERER_OPTION_KEYS) {
+    const value =
+      source[key] !== undefined
+        ? source[key]
+        : includeCustomDefaults
+          ? defaults[key]
+          : undefined;
+    if (value !== undefined) {
+      normalized[key] = value;
+    }
+  }
+  return normalized as NormalizedSparkRendererOptions;
+}
+
 class SharedSparkRendererManager {
   #sparkRenderer: CameraRelativeSparkRenderer;
   #scene: Scene;
+  #sparkRendererOptions: NormalizedSparkRendererOptions;
   #notifyHandle: ReturnType<typeof setTimeout> | null = null;
   #disposeHandle: ReturnType<typeof setTimeout> | null = null;
   #tilesRenderers = new Set<TilesRenderer>();
@@ -23,7 +56,11 @@ class SharedSparkRendererManager {
   constructor(host: GaussianSplatPluginHost) {
     this.#scene = host.scene;
     this.renderer = host.renderer;
-    this.#sparkRenderer = new CameraRelativeSparkRenderer(host.renderer);
+    this.#sparkRendererOptions = normalizeSparkRendererOptions(host);
+    this.#sparkRenderer = new CameraRelativeSparkRenderer(
+      host.renderer,
+      this.#sparkRendererOptions,
+    );
     this.#sparkRenderer.onDirty = () => {
       if (!this.#disposed) {
         this.#scheduleSortUpdatedNotification();
@@ -34,6 +71,35 @@ class SharedSparkRendererManager {
 
   retain(tiles: TilesRenderer) {
     this.#tilesRenderers.add(tiles);
+  }
+
+  applyHostOptions(host: GaussianSplatPluginHost) {
+    const next = normalizeSparkRendererOptions(host, false) as Record<
+      string,
+      unknown
+    >;
+    const prev = this.#sparkRendererOptions as Record<string, unknown>;
+    const renderer = this.#sparkRenderer as unknown as Record<string, unknown>;
+
+    let merged: Record<string, unknown> | null = null;
+
+    for (const [key, nextValue] of Object.entries(next)) {
+      // With no tracked opinion yet, compare against the renderer's actual
+      // current value so an explicit `next === current` is a no-op.
+      const baseline = prev[key] !== undefined ? prev[key] : renderer[key];
+      if (baseline === nextValue) continue;
+      renderer[key] = nextValue;
+      merged ??= { ...prev };
+      merged[key] = nextValue;
+    }
+
+    if (!merged) return;
+
+    this.#sparkRendererOptions = merged as NormalizedSparkRendererOptions;
+    this.#sparkRenderer.setDirty();
+    console.warn(
+      `GaussianSplatPlugin: Updating shared sparkRendererOptions for Scene/WebGLRenderer. Existing: ${JSON.stringify(prev)}, received: ${JSON.stringify(next)}.`,
+    );
   }
 
   release(tiles: TilesRenderer) {
@@ -128,6 +194,7 @@ export function getSharedSparkRendererManager(host: GaussianSplatPluginHost) {
       );
     }
 
+    managerByScene.applyHostOptions(host);
     return managerByScene;
   }
 

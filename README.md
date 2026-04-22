@@ -27,6 +27,7 @@ compatibility.
 - Supports `gltf` and `glb` tile payloads containing compressed Gaussian splats
 - Builds `SplatMesh` instances from SPZ-compressed primitive data
 - Shares one Spark renderer per scene / WebGLRenderer pair
+- Accepts `sparkRendererOptions` to forward a supported subset of Spark renderer settings
 - Re-bases splat rendering around the active camera to reduce large-world
   precision issues
 - Tracks extra GPU / buffer memory through `calculateBytesUsed`
@@ -67,7 +68,16 @@ const camera = new PerspectiveCamera(
 const tiles = new TilesRenderer('https://example.com/tileset.json');
 tiles.setCamera(camera);
 tiles.setResolutionFromRenderer(camera, renderer);
-tiles.registerPlugin(new GaussianSplatPlugin({ renderer, scene }));
+tiles.registerPlugin(
+  new GaussianSplatPlugin({
+    renderer,
+    scene,
+    sparkRendererOptions: {
+      // Optional: the plugin already defaults this to 2.
+      focalAdjustment: 2,
+    },
+  }),
+);
 
 scene.add(tiles.group);
 
@@ -79,6 +89,37 @@ function frame() {
 
 frame();
 ```
+
+## Spark Renderer Options
+
+`GaussianSplatPlugin` accepts an optional `sparkRendererOptions` object on the
+constructor host:
+
+```ts
+new GaussianSplatPlugin({
+  renderer,
+  scene,
+  sparkRendererOptions: {
+    focalAdjustment: 2,
+    blurAmount: 0.15,
+    accumExtSplats: false,
+  },
+});
+```
+
+Supported keys are `encodeLinear`, `maxStdDev`, `minPixelRadius`,
+`maxPixelRadius`, `accumExtSplats`, `minAlpha`, `enable2DGS`,
+`preBlurAmount`, `blurAmount`, `clipXY`, `focalAdjustment`, `sortRadial`,
+`minSortIntervalMs`, `depthTest`, and `depthWrite`.
+
+Unspecified options use Spark defaults, except this plugin keeps
+`focalAdjustment: 2` as its own default.
+
+Because one Spark renderer is shared per `scene` / `WebGLRenderer` pair,
+explicit `sparkRendererOptions` from later `GaussianSplatPlugin` instances are
+merged into that existing shared renderer. Omitted keys do not reset previously
+applied values, and changed explicit values log a warning so shared-state
+updates remain visible.
 
 ## Rendering Note
 
@@ -201,9 +242,12 @@ Creates a tile parser plugin.
 
 - `renderer: WebGLRenderer`
 - `scene: Scene`
+- `sparkRendererOptions?: supported Spark renderer option subset`
 
 The same `scene` and `renderer` pair must stay in a strict 1:1:1 relationship
-with the shared Spark renderer manager used by the plugin.
+with the shared Spark renderer manager used by the plugin. If multiple plugin
+instances reuse that pair, they also reuse the same Spark renderer and merge
+their explicit `sparkRendererOptions` into it.
 
 ### `isGaussianSplat(object)`
 
