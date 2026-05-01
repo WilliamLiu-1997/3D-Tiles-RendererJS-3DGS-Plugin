@@ -8,7 +8,6 @@ import {
 } from 'three';
 import { TilesRenderer } from '3d-tiles-renderer';
 import {
-  ImplicitTilingPlugin,
   TileCompressionPlugin,
   TilesFadePlugin,
   UnloadTilesPlugin,
@@ -114,7 +113,6 @@ export function runExample({ tilesets, initial = 0 }) {
     next.registerPlugin(new TilesFadePlugin());
     next.registerPlugin(new TileCompressionPlugin());
     next.registerPlugin(new UnloadTilesPlugin());
-    next.registerPlugin(new ImplicitTilingPlugin());
     next.registerPlugin(new GaussianSplatPlugin({ renderer, scene }));
     next.setCamera(camera);
     next.setResolutionFromRenderer(camera, renderer);
