@@ -7,6 +7,14 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-05-03
+
+### Fixed
+
+- Rebased Spark global `SplatEdit` roots alongside camera-relative Gaussian
+  splat roots and tracked edit/SDF state changes so crop boxes stay aligned and
+  refresh correctly when edited.
+
 ## [0.1.4] - 2026-04-22
 
 ### Added

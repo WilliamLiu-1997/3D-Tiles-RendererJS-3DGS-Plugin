@@ -1,6 +1,6 @@
 {
   "name": "3d-tiles-rendererjs-3dgs-plugin",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Gaussian splat tile plugin for 3d-tiles-renderer backed by Spark.",
   "author": "William Liu <lyz15972107087@gmail.com>",
   "type": "module",
