@@ -11,10 +11,15 @@
 </div>
 
 `3d-tiles-rendererjs-3dgs-plugin` adds Gaussian splat tile support to
-[`3d-tiles-renderer`](https://www.npmjs.com/package/3d-tiles-renderer) by
+[`3d-tiles-renderer`](https://github.com/NASA-AMMOS/3DTilesRendererJS) by
 parsing glTF / GLB tile payloads that use `KHR_gaussian_splatting` with
 `KHR_gaussian_splatting_compression_spz_2`, then rendering them through
-[`@sparkjsdev/spark`](https://www.npmjs.com/package/@sparkjsdev/spark).
+[`@sparkjsdev/spark`](https://github.com/sparkjsdev/spark).
+
+This plugin loads 3D Tiles content; it does not load raw `.ply` splat files
+directly. To generate 3D tiles from PLY-format 3D Gaussian Splatting
+data, use
+[`3DGS-PLY-3DTiles-Converter`](https://github.com/WilliamLiu-1997/3DGS-PLY-3DTiles-Converter).
 
 The package is designed for `three.js` applications that already use
 `TilesRenderer` and want streamed Gaussian splat content to behave like normal
