@@ -1,10 +1,13 @@
 import {
   EventDispatcher,
   Matrix4,
+  Mesh,
   Plane,
+  PlaneGeometry,
   Quaternion,
   Ray,
   Raycaster,
+  ShaderMaterial,
   Vector2,
   Vector3,
 } from 'three';
@@ -191,6 +194,98 @@ class PointerTracker {
     return Boolean(this.buttons & 4);
   }
 }
+
+class PivotPointMesh extends Mesh {
+  constructor(size = 15, thickness = 3) {
+    super(new PlaneGeometry(0, 0), new PivotMaterial(size, thickness));
+    this.renderOrder = Infinity;
+  }
+
+  set focus(value) {
+    this.material.uniforms.opacity.value = value ? 1 : 0.5;
+  }
+
+  onBeforeRender(renderer) {
+    renderer.getSize(this.material.uniforms.resolution.value);
+  }
+
+  updateMatrixWorld() {
+    this.matrixWorld.makeTranslation(this.position);
+  }
+
+  dispose() {
+    this.geometry.dispose();
+    this.material.dispose();
+  }
+}
+
+class PivotMaterial extends ShaderMaterial {
+  constructor(size, thickness) {
+    const coreD = size + thickness;
+    const planeD = coreD + 3 * thickness;
+    const normThk = thickness / coreD;
+    const ringR = (coreD - 0.4 * thickness - 4.0) / coreD;
+    const hw = 0.4 * normThk;
+
+    super({
+      depthWrite: false,
+      depthTest: false,
+      transparent: true,
+
+      uniforms: {
+        resolution: { value: new Vector2() },
+        opacity: { value: 1 },
+        planeD: { value: planeD },
+        hw: { value: hw },
+        ringR: { value: ringR },
+        shadowW: { value: hw * 5.0 },
+        uvScale: { value: planeD / coreD },
+      },
+
+      vertexShader: `
+        uniform float planeD;
+        uniform vec2 resolution;
+        varying vec2 vUv;
+
+        void main() {
+          vUv = uv;
+          float aspect = resolution.x / resolution.y;
+          vec2 offset = uv * 2.0 - vec2(1.0);
+          offset.y *= aspect;
+          vec4 screenPoint = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          screenPoint.xy += offset * planeD * screenPoint.w / resolution.x;
+          gl_Position = screenPoint;
+        }
+      `,
+      fragmentShader: `
+        uniform float hw;
+        uniform float ringR;
+        uniform float shadowW;
+        uniform float opacity;
+        uniform float uvScale;
+        varying vec2 vUv;
+
+        void main() {
+          vec2 uv = (vUv * 2.0 - 1.0) * uvScale;
+          float len = length(uv);
+          float fw = fwidth(len) * 0.5;
+          float d = abs(len - ringR);
+
+          float ring = 1.0 - smoothstep(hw - fw, hw + fw, d);
+
+          float shadow = (1.0 - smoothstep(hw, shadowW, d)) * (1.0 - smoothstep(ringR - fw, ringR + fw, len)) * 0.5;
+
+          float white = ring;
+          float black = shadow * (1.0 - white);
+          float alpha = (white + black) * opacity;
+          if (alpha < 0.001) discard;
+          gl_FragColor = vec4(vec3(white / max(alpha / opacity, 0.001)), alpha);
+        }
+      `,
+    });
+  }
+}
+
 const _matrix = new Matrix4();
 // custom version of set raycaster from camera that relies on the underlying matrices
 // so the ray origin is position at the camera near clip.
@@ -240,6 +335,8 @@ const UPDATE_EVENT = { type: 'update' };
 const FINISH_EVENT = { type: 'finish' };
 const THRESHOLD = 1e-3;
 const MAX = 1e8;
+const PIVOT_SIZE = 22;
+const PIVOT_THICKNESS = 2.5;
 const VIRTUAL_HIT_DISTANCE = 50;
 const ZOOM_OUT_TRANSITION_COS_THRESHOLD = Math.cos((105 * Math.PI) / 180);
 const ZOOM_OUT_TRANSITION_COS_MAX_THRESHOLD = Math.cos((95 * Math.PI) / 180);
@@ -281,6 +378,7 @@ class CameraController extends EventDispatcher {
   #camera;
   #scene;
   #raycaster;
+  #pivotMesh;
   #zoomDelta;
   #zoomInertia;
   #rotateInertia;
@@ -330,6 +428,8 @@ class CameraController extends EventDispatcher {
     this.#pointerTracker = new PointerTracker();
     this.#raycaster = new Raycaster();
     this.#raycaster.params.Points.threshold = 0.1;
+    this.#pivotMesh = new PivotPointMesh(PIVOT_SIZE, PIVOT_THICKNESS);
+    this.#pivotMesh.visible = false;
     this.#zoomDelta = 0;
     this.#zoomInertia = 0;
     this.#rotateInertia = new Vector2();
@@ -368,13 +468,22 @@ class CameraController extends EventDispatcher {
   get camera() {
     return this.#camera;
   }
+  get indicator() {
+    return this.#pivotMesh;
+  }
   #setState(state = this.state) {
     if (this.state === state) {
       return;
     }
     this.state = state;
+    if (state !== NONE) {
+      this.#pivotMesh.visible = true;
+    }
   }
   #setZooming(zooming, touchZooming = false) {
+    if (!this.zooming && this.state === NONE && zooming) {
+      this.#pivotMesh.visible = true;
+    }
     this.zooming = zooming;
     this.touchZooming = touchZooming;
   }
@@ -391,6 +500,7 @@ class CameraController extends EventDispatcher {
     this.#dragPlaneNormal.set(0, 0, 0);
     this.#zoomInertia = 0;
     this.#hit = null;
+    this.#pivotMesh.visible = false;
   }
   setCamera(camera) {
     this.#camera = camera;
@@ -405,6 +515,8 @@ class CameraController extends EventDispatcher {
   }
   init() {
     this.#domElement.style.touchAction = 'none';
+    this.#pivotMesh.raycast = () => {};
+    this.#scene.add(this.#pivotMesh);
     this.#contextMenuEvent = this.#contextMenu.bind(this);
     this.#pointerDownEvent = this.#pointerDown.bind(this);
     this.#pointerMoveEvent = this.#pointerMove.bind(this);
@@ -600,6 +712,8 @@ class CameraController extends EventDispatcher {
       'pointerenter',
       this.#pointerEnterEvent,
     );
+    this.#pivotMesh.removeFromParent();
+    this.#pivotMesh.dispose();
     this.#domElement.style.touchAction = '';
     this.#enabled = false;
     this.#ellipsoid = null;
@@ -615,6 +729,15 @@ class CameraController extends EventDispatcher {
   #contextMenu = (e) => {
     e.preventDefault();
   };
+  #updateIndicatorFromHit() {
+    if (this.#hit && this.#hit.distance > 0) {
+      this.#pivotMesh.visible = true;
+      this.#pivotMesh.position.copy(this.#hit.point);
+      this.#pivotMesh.focus = !this.#hit.onGlobe;
+    } else {
+      this.#pivotMesh.visible = false;
+    }
+  }
   #pointerDown = (e) => {
     if (!this.#enabled) {
       return;
@@ -653,6 +776,7 @@ class CameraController extends EventDispatcher {
       mouseToCoords(_pointer1.x, _pointer1.y, this.#domElement, _pointer1);
       setRaycasterFromCamera(this.#raycaster, _pointer1, this.#camera);
       this.#hit = this.#raycast(this.#raycaster);
+      this.#updateIndicatorFromHit();
       if (this.state === DRAG && this.#hit.distance > 0) {
         this.#initializeDragAnchor();
       }
@@ -689,9 +813,9 @@ class CameraController extends EventDispatcher {
     if (!this.#enabled) {
       return;
     }
-    const tooClose = this.#hit
-      ? this.#hit.point.distanceTo(this.#camera.position) <= this.#camera.near
-      : false;
+    const tooClose =
+      this.#pivotMesh.position.distanceTo(this.#camera.position) <=
+      this.#camera.near;
     if (!this.zooming || tooClose) {
       this.#rotateInertia.set(0, 0);
       this.#dragInertia.set(0, 0, 0);
@@ -705,6 +829,7 @@ class CameraController extends EventDispatcher {
     setRaycasterFromCamera(this.#raycaster, _pointer1, this.#camera);
     if ((!this.zooming && this.state === NONE) || tooClose) {
       this.#hit = this.#raycast(this.#raycaster);
+      this.#updateIndicatorFromHit();
     }
     let delta = 0;
     switch (e.deltaMode) {
@@ -1056,6 +1181,7 @@ class CameraController extends EventDispatcher {
         .copy(this.#camera.position)
         .addScaledVector(_forward, VIRTUAL_HIT_DISTANCE);
       hit.distance = VIRTUAL_HIT_DISTANCE;
+      this.#pivotMesh.position.copy(hit.point);
     }
     let zoomFactor = Math.exp(-zoomAmount * 0.001);
     if (this.minDistance > 0 && zoomFactor < 1) {

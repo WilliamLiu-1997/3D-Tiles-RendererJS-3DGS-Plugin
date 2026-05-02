@@ -1,5 +1,6 @@
 import {
   Color,
+  Matrix4,
   PerspectiveCamera,
   Scene,
   Sphere,
@@ -85,20 +86,40 @@ export function runExample({ tilesets, initial = 0 }) {
   controls.setEllipsoid(imageryTiles.ellipsoid);
 
   const sphere = new Sphere();
+  const cameraRotation = new Matrix4();
+  const cameraBack = new Vector3();
+  const cameraForward = new Vector3();
+  const cameraRight = new Vector3();
+  const cameraUp = new Vector3();
   let tiles = null;
 
   function frameTileset() {
     if (!tiles || !tiles.getBoundingSphere(sphere)) return false;
-    const surfaceNormal =
+    const localUp =
       sphere.center.lengthSq() > 0
         ? sphere.center.clone().normalize()
         : new Vector3(0, 1, 0);
+    const localSide = new Vector3().crossVectors(new Vector3(0, 0, 1), localUp);
+    if (localSide.lengthSq() < 1e-6) {
+      localSide.crossVectors(new Vector3(1, 0, 0), localUp);
+    }
+    localSide.normalize();
+    const viewOffset = new Vector3()
+      .copy(localSide)
+      .addScaledVector(localUp, 0.5)
+      .normalize();
     const cameraPosition = new Vector3()
       .copy(sphere.center)
-      .addScaledVector(surfaceNormal, sphere.radius);
+      .addScaledVector(viewOffset, sphere.radius);
     camera.position.copy(cameraPosition);
     camera.up.set(0, 1, 0);
-    camera.lookAt(sphere.center);
+    cameraForward.subVectors(sphere.center, camera.position).normalize();
+    cameraUp.copy(localUp).projectOnPlane(cameraForward).normalize();
+    cameraBack.copy(cameraForward).negate();
+    cameraRight.crossVectors(cameraUp, cameraBack).normalize();
+    cameraUp.crossVectors(cameraBack, cameraRight).normalize();
+    cameraRotation.makeBasis(cameraRight, cameraUp, cameraBack);
+    camera.quaternion.setFromRotationMatrix(cameraRotation);
     camera.updateMatrixWorld();
     return true;
   }
