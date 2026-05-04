@@ -1087,7 +1087,7 @@ class CameraController extends EventDispatcher {
     const minScale = 0;
     metrics.distanceScale = baseScale;
     metrics.transitionWeight = 0;
-    if (!this.#ellipsoid) {
+    if (!this.#ellipsoid || this.#isCameraCenterMode()) {
       return metrics;
     }
     const taperStartRadius = this.#ellipsoidMaxRadius * 1.5;
@@ -1148,7 +1148,7 @@ class CameraController extends EventDispatcher {
     const source = _vec4.copy(this.#camera.position);
     let distanceScale = 1;
     let transitionWeight = 0;
-    if (zoomAmount < 0 && this.#ellipsoid) {
+    if (zoomAmount < 0 && this.#ellipsoid && !this.#isCameraCenterMode()) {
       const metrics = this.#getZoomOutMetrics(source, hit.virtual ? null : hit);
       distanceScale = metrics.distanceScale;
       transitionWeight = metrics.transitionWeight;
