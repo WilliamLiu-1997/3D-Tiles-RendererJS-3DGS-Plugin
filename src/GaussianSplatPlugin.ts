@@ -1,4 +1,4 @@
-import { SplatMesh, type SparkRendererOptions } from '@sparkjsdev/spark';
+import { SplatMesh, type SparkRenderer, type SparkRendererOptions } from '@sparkjsdev/spark';
 import { Group, Matrix4, Object3D, WebGLRenderer, type Scene } from 'three';
 import type { Tile, TilesRenderer } from '3d-tiles-renderer';
 import {
@@ -343,9 +343,14 @@ export class GaussianSplatPlugin {
     this.#host = host;
   }
 
+  get sparkRenderer(): SparkRenderer {
+    this.#sparkManager ??= getSharedSparkRendererManager(this.#host);
+    return this.#sparkManager.sparkRenderer;
+  }
+
   init(tiles: TilesRenderer) {
     this.tiles = tiles;
-    this.#sparkManager = getSharedSparkRendererManager(this.#host);
+    this.#sparkManager ??= getSharedSparkRendererManager(this.#host);
     this.#sparkManager.retain(tiles);
   }
 

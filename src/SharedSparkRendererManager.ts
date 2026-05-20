@@ -1,5 +1,6 @@
 import { WebGLRenderer, type Scene } from 'three';
 import type { TilesRenderer } from '3d-tiles-renderer';
+import type { SparkRenderer } from '@sparkjsdev/spark';
 import {
   SPARK_RENDERER_OPTION_KEYS,
   type GaussianSplatPluginHost,
@@ -67,6 +68,10 @@ class SharedSparkRendererManager {
       }
     };
     host.scene.add(this.#sparkRenderer);
+  }
+
+  get sparkRenderer(): SparkRenderer {
+    return this.#sparkRenderer;
   }
 
   retain(tiles: TilesRenderer) {
