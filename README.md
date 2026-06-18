@@ -57,6 +57,7 @@ npm install 3d-tiles-rendererjs-3dgs-plugin three 3d-tiles-renderer @sparkjsdev/
 ```ts
 import { Scene, PerspectiveCamera, WebGLRenderer } from 'three';
 import { TilesRenderer } from '3d-tiles-renderer';
+import { TilesFadePlugin } from '3d-tiles-renderer/plugins';
 import { GaussianSplatPlugin } from '3d-tiles-rendererjs-3dgs-plugin';
 
 const renderer = new WebGLRenderer({ antialias: false });
@@ -71,6 +72,7 @@ const camera = new PerspectiveCamera(
 const tiles = new TilesRenderer('https://example.com/tileset.json');
 tiles.setCamera(camera);
 tiles.setResolutionFromRenderer(camera, renderer);
+tiles.registerPlugin(new TilesFadePlugin());
 tiles.registerPlugin(
   new GaussianSplatPlugin({
     renderer,
@@ -299,6 +301,7 @@ globeScene.add(imageryTiles.group);
 const splatTiles = new TilesRenderer('https://example.com/splats/tileset.json');
 splatTiles.setCamera(camera);
 splatTiles.setResolutionFromRenderer(camera, renderer);
+splatTiles.registerPlugin(new TilesFadePlugin());
 splatTiles.registerPlugin(
   new GaussianSplatPlugin({ renderer, scene: splatScene }),
 );
