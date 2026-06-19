@@ -7,18 +7,22 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-06-19
+
 ### Added
 
 - Added `EXT_splat_opacity` support for SPZ-compressed Gaussian splat
   primitives so tiles can carry Spark-compatible per-splat opacity values in a
   `FLOAT` / `SCALAR` accessor.
 - Added an `EXT_splat_opacity` extension note describing the extension shape,
-  accessor requirements, value semantics, and reader behavior.
+  accessor requirements, and value semantics.
 
 ### Changed
 
 - Split Gaussian splat fade handling and splat opacity extension loading into
   focused helper modules.
+- Applied `EXT_splat_opacity` values before Spark texture creation so the
+  decoded splat data includes overrides during initial upload.
 
 ## [0.1.13] - 2026-06-08
 
