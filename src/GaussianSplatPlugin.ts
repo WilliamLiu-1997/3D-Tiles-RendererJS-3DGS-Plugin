@@ -20,6 +20,12 @@ import {
   type SharedSparkRendererManager,
   getSharedSparkRendererManager,
 } from './SharedSparkRendererManager';
+import {
+  createGaussianFadeMaterial,
+  createGaussianFadeModifier,
+  createGaussianFadeState,
+  type GaussianSplatFadeMaterial,
+} from './GaussianSplatFade';
 
 type TileWithEngineData = Tile & {
   engineData: Record<string, any>;
@@ -81,22 +87,6 @@ type GaussianSplatSceneGroup = Group & {
   };
 };
 
-type GaussianFadeValueHolder = Record<PropertyKey, unknown> & {
-  value: number;
-};
-
-type GaussianFadeParamsLike = {
-  fadeIn: GaussianFadeValueHolder;
-  fadeOut: GaussianFadeValueHolder;
-};
-
-type GaussianSplatFadeMaterial = Record<PropertyKey, unknown> & {
-  defines?: Record<string, unknown>;
-  needsUpdate?: boolean;
-  onBeforeCompile?: (shader: unknown) => void;
-  dispose(): void;
-};
-
 type GaussianSplatMesh = SplatMesh & {
   material: GaussianSplatFadeMaterial;
 };
@@ -105,107 +95,6 @@ const MAX_GAUSSIAN_MESH_INIT_CONCURRENCY = 4;
 const DEFAULT_MIN_RAYCAST_OPACITY = 0.1;
 
 const _sceneMatrix = new Matrix4();
-const _gaussianFadeValueWatched = Symbol('gaussianFadeValueWatched');
-
-function isFadeEndpoint(value: number) {
-  return value === 0 || value === 1;
-}
-
-function getGaussianSplatOpacityFromFade(fadeIn: number, fadeOut: number) {
-  // TilesFadePlugin disables shader fading entirely once both values reach an
-  // endpoint, so the fully visible opacity must be restored here as well.
-  if (isFadeEndpoint(fadeIn) && isFadeEndpoint(fadeOut)) {
-    // fadeIn=1,fadeOut=0 → visible; fadeIn=1,fadeOut=1 → hidden (about to be removed)
-    return fadeOut === 0 ? 1 : 0;
-  }
-
-  return Math.min(Math.max(fadeIn - fadeOut, 0), 1);
-}
-
-function getFiniteFadeValue(value: unknown) {
-  const numericValue = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(numericValue) ? numericValue : 0;
-}
-
-function isGaussianFadeParamsLike(
-  value: unknown,
-): value is GaussianFadeParamsLike {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-
-  const fadeIn = (value as { fadeIn?: unknown }).fadeIn;
-  const fadeOut = (value as { fadeOut?: unknown }).fadeOut;
-  return Boolean(
-    fadeIn &&
-    typeof fadeIn === 'object' &&
-    'value' in fadeIn &&
-    fadeOut &&
-    typeof fadeOut === 'object' &&
-    'value' in fadeOut,
-  );
-}
-
-function watchGaussianFadeValue(
-  fadeValue: GaussianFadeValueHolder,
-  key: 'fadeIn' | 'fadeOut',
-  state: { fadeIn: number; fadeOut: number },
-  updateOpacity: () => void,
-) {
-  let currentValue = getFiniteFadeValue(fadeValue.value);
-  state[key] = currentValue;
-
-  try {
-    Object.defineProperty(fadeValue, 'value', {
-      configurable: true,
-      enumerable: true,
-      get: () => currentValue,
-      set: (value: unknown) => {
-        currentValue = getFiniteFadeValue(value);
-        state[key] = currentValue;
-        updateOpacity();
-      },
-    });
-    fadeValue[_gaussianFadeValueWatched] = true;
-  } catch {
-    // Property is non-configurable; skip interception
-  }
-  updateOpacity();
-}
-
-function attachGaussianFadeWatcher(
-  mesh: SplatMesh,
-  fadeParams: GaussianFadeParamsLike,
-) {
-  const state = {
-    fadeIn: getFiniteFadeValue(fadeParams.fadeIn.value),
-    fadeOut: getFiniteFadeValue(fadeParams.fadeOut.value),
-  };
-  const updateOpacity = () => {
-    mesh.opacity = getGaussianSplatOpacityFromFade(state.fadeIn, state.fadeOut);
-  };
-
-  watchGaussianFadeValue(fadeParams.fadeIn, 'fadeIn', state, updateOpacity);
-  watchGaussianFadeValue(fadeParams.fadeOut, 'fadeOut', state, updateOpacity);
-}
-
-function createGaussianFadeMaterial(
-  mesh: SplatMesh,
-): GaussianSplatFadeMaterial {
-  const material: GaussianSplatFadeMaterial = {
-    dispose() {},
-  };
-  return new Proxy(material, {
-    set(target, property, value) {
-      const didSet = Reflect.set(target, property, value);
-      if (isGaussianFadeParamsLike(value)) {
-        attachGaussianFadeWatcher(mesh, value);
-      }
-
-      return didSet;
-    },
-  });
-}
 
 function makeGaussianSceneMatrix(
   tiles: TilesRenderer | null,
@@ -421,16 +310,18 @@ export class GaussianSplatPlugin {
       throw createAbortError();
     }
     let byteLength = 0;
+    const fadeState = createGaussianFadeState();
 
     const mesh = new SplatMesh({
       extSplats: source.extSplats,
       raycastable: true,
       minRaycastOpacity:
         this.#host.minRaycastOpacity ?? DEFAULT_MIN_RAYCAST_OPACITY,
+      objectModifier: createGaussianFadeModifier(fadeState.opacityUniform),
     }) as GaussianSplatMesh;
 
     const originalMaterial = mesh.material;
-    mesh.material = createGaussianFadeMaterial(mesh);
+    mesh.material = createGaussianFadeMaterial(mesh, fadeState);
     if (originalMaterial && typeof originalMaterial.dispose === 'function') {
       originalMaterial.dispose();
     }
