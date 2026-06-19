@@ -1,4 +1,4 @@
-import { toHalf, type ExtSplats } from '@sparkjsdev/spark';
+import { toHalf } from '@sparkjsdev/spark';
 
 const SPLAT_OPACITY_EXTENSION_NAME = 'EXT_splat_opacity';
 const GL_FLOAT = 5126;
@@ -151,29 +151,24 @@ export function loadSplatOpacityAccessorSource(
   };
 }
 
-export function applySplatOpacityOverride(
-  extSplats: ExtSplats,
+export function applySplatOpacityOverrideToArray(
+  extA: Uint32Array,
+  numSplats: number,
   opacitySource: SplatOpacityAccessorSource | null,
 ) {
   if (!opacitySource) {
     return;
   }
 
-  const extA = extSplats.extArrays?.[0];
-  if (!extA) {
-    return;
-  }
-
   const count = Math.min(
     opacitySource.count,
-    extSplats.numSplats,
+    numSplats,
     Math.floor(extA.length / 4),
   );
   if (count <= 0) {
     return;
   }
 
-  let didUpdate = false;
   const directView = opacitySource.directView;
   if (directView) {
     for (let i = 0, offset = 3; i < count; i++, offset += 4) {
@@ -184,7 +179,6 @@ export function applySplatOpacityOverride(
 
       // Spark packs opacity into the low 16 bits of word i*4+3.
       extA[offset] = toHalf(opacity);
-      didUpdate = true;
     }
   } else {
     const byteLength = (count - 1) * opacitySource.byteStride + FLOAT_BYTE_SIZE;
@@ -200,11 +194,6 @@ export function applySplatOpacityOverride(
       }
 
       extA[offset] = toHalf(opacity);
-      didUpdate = true;
     }
-  }
-
-  if (didUpdate && extSplats.textures?.[0]) {
-    extSplats.textures[0].needsUpdate = true;
   }
 }

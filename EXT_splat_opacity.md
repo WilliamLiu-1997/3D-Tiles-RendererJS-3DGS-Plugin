@@ -165,24 +165,6 @@ This plugin writes the value into Spark's half-float opacity storage, so the
 final renderer precision and maximum representable value are bounded by Spark's
 decoded splat representation even though the glTF accessor itself is `FLOAT`.
 
-## Reader Behavior
-
-A reader that supports this extension should:
-
-1. Decode the `KHR_gaussian_splatting_compression_spz_2` payload.
-2. Resolve and validate `opacityAccessor`, if present.
-3. Initialize the renderer's splat data from the decoded SPZ payload.
-4. Apply each valid opacity accessor value to the corresponding decoded splat.
-5. Mark the renderer-side opacity texture or buffer dirty if any value was
-   written.
-
-In this plugin, the application step writes the half-float opacity value into
-Spark's decoded `ExtSplats` extension array at word `i * 4 + 3`, then marks the
-first Spark texture for upload.
-
-Readers that do not support the extension can ignore it and render the base SPZ
-opacity values, unless `EXT_splat_opacity` is listed in `extensionsRequired`.
-
 ## Minimal Example
 
 ```json
