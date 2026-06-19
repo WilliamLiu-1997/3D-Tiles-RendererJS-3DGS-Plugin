@@ -12,6 +12,7 @@
   "files": [
     "dist",
     "CHANGELOG.md",
+    "EXT_splat_opacity.md",
     "LICENSE",
     "README.md"
   ],

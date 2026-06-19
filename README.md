@@ -339,6 +339,11 @@ intercepts tile payloads when all of the following are true:
 compression path at the moment. Raw, uncompressed Gaussian primitives and other
 compression schemes are rejected intentionally.
 
+Tiles may also include the draft `EXT_splat_opacity` extension to carry
+Spark-compatible per-splat opacity values alongside SPZ data. See
+[`EXT_splat_opacity.md`](EXT_splat_opacity.md) for the extension shape and
+accessor requirements.
+
 ## API
 
 ### `new GaussianSplatPlugin(host)`
