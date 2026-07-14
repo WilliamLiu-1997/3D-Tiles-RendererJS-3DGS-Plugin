@@ -1,5 +1,6 @@
 import {
   EventDispatcher,
+  MathUtils,
   Matrix4,
   Mesh,
   Plane,
@@ -324,6 +325,10 @@ const START_EVENT = { type: 'start' };
 const UPDATE_EVENT = { type: 'update' };
 const FINISH_EVENT = { type: 'finish' };
 const THRESHOLD = 1e-3;
+const INTERIOR_CAMERA_ANCHOR_TAPER_START_DISTANCE =
+  (CAMERA_CENTER_MODE_DISTANCE * 2) / 3;
+const MAX_INTERIOR_CAMERA_ANCHOR_DISTANCE =
+  CAMERA_CENTER_MODE_DISTANCE - THRESHOLD;
 const MAX = 1e8;
 const PIVOT_SIZE = 22;
 const PIVOT_THICKNESS = 2.5;
@@ -347,9 +352,10 @@ const _axis = new Vector3();
 const _localUp = new Vector3();
 const _positionUp = new Vector3();
 const _localRight = new Vector3();
+const _anchorLocal = new Vector3();
+const _anchorOffset = new Vector3();
 const _rotMatrix = new Matrix4();
 const _quaternion = new Quaternion();
-const _rollRotation = new Quaternion();
 const _plane = new Plane();
 const _ray = new Ray();
 const _dragEllipsoid = new Ellipsoid(1, 1, 1);
@@ -380,6 +386,7 @@ class CameraController extends EventDispatcher {
   #lastTime;
   #hit;
   #pointerDownFilter;
+  #raycastHitFilter;
   #zoomTimeout;
   constructor(renderer, scene, camera, options = {}) {
     super();
@@ -416,6 +423,10 @@ class CameraController extends EventDispatcher {
     this.#pointerDownFilter =
       typeof options.pointerDownFilter === 'function'
         ? options.pointerDownFilter
+        : null;
+    this.#raycastHitFilter =
+      typeof options.raycastHitFilter === 'function'
+        ? options.raycastHitFilter
         : null;
     this.#zoomTimeout = null;
     this.init();
@@ -483,6 +494,10 @@ class CameraController extends EventDispatcher {
     this.#resetState();
     this.#pointerTracker.reset();
   }
+  setRaycastHitFilter(filter) {
+    this.#raycastHitFilter = typeof filter === 'function' ? filter : null;
+    this.#resetState();
+  }
   init() {
     this.#domElement.style.touchAction = 'none';
     this.#pivotMesh.raycast = () => {};
@@ -533,7 +548,7 @@ class CameraController extends EventDispatcher {
             this.#inertiaValue = 1;
             this.#rotateInertia.set(0, 0);
             this.#zoomInertia = 0;
-            this.#finalizeCamera();
+            this.#finalizeCamera(false);
           } else {
             this.#setState(IDLE);
           }
@@ -572,7 +587,7 @@ class CameraController extends EventDispatcher {
               _quaternion.setFromAxisAngle(_axis, angle);
               this.#applyCameraRotationAroundOrigin(_quaternion);
             }
-            this.#finalizeCamera();
+            this.#finalizeCamera(false);
           } else {
             _vec.copy(this.#dragInertia).multiplyScalar(this.#inertiaValue);
             this.#camera.position.sub(_vec);
@@ -848,15 +863,36 @@ class CameraController extends EventDispatcher {
       this.dispatchEvent(FINISH_EVENT);
     }
   };
-  #finalizeCamera() {
+  #finalizeCamera(preservePolarAnchor = true) {
     const fixedPoint =
       this.#hit && this.#hit.distance > 0 ? this.#hit.point : undefined;
     this.#limitCameraDistance(fixedPoint);
+    const wasInsideEllipsoid = this.#isPositionInsideEllipsoid(
+      this.#camera.position,
+    );
     if (fixedPoint && !this.#isCameraCenterMode()) {
       this.#keepCameraUp(fixedPoint);
     } else {
       this.#keepCameraUp();
     }
+    if (
+      !wasInsideEllipsoid &&
+      this.#isPositionInsideEllipsoid(this.#camera.position)
+    ) {
+      this.#limitCameraDistance(fixedPoint);
+      this.#keepCameraUp();
+    }
+    const isCameraCenterMode = this.#isCameraCenterMode();
+    const referenceUp = isCameraCenterMode
+      ? _worldZ
+      : this.#getPositionUpDirection(this.#camera.position, _positionUp);
+    // Modified globe drag already rotates around the Earth center. Preserving
+    // an off-center anchor during a polar correction would translate the
+    // camera and make the globe silhouette drift or change size.
+    this.#clampCameraPolarAngle(
+      referenceUp,
+      isCameraCenterMode || !preservePolarAnchor ? undefined : fixedPoint,
+    );
     this.#camera.updateMatrixWorld();
   }
   #getPositionUpDirection(position, target) {
@@ -1058,9 +1094,23 @@ class CameraController extends EventDispatcher {
       _vec3,
     );
   }
-  #getZoomDistanceScale(zoomAmount, source) {
+  #getZoomDistanceScale(zoomAmount, source, anchorPoint) {
     if (zoomAmount >= 0 || !this.#ellipsoid || this.#isCameraCenterMode()) {
       return 1;
+    }
+    if (anchorPoint && this.#isPositionInsideEllipsoid(source)) {
+      const currentDistance = source.distanceTo(anchorPoint);
+      if (currentDistance <= INTERIOR_CAMERA_ANCHOR_TAPER_START_DISTANCE) {
+        return 1;
+      }
+      if (currentDistance >= MAX_INTERIOR_CAMERA_ANCHOR_DISTANCE) {
+        return 0;
+      }
+      return (
+        (MAX_INTERIOR_CAMERA_ANCHOR_DISTANCE - currentDistance) /
+        (MAX_INTERIOR_CAMERA_ANCHOR_DISTANCE -
+          INTERIOR_CAMERA_ANCHOR_TAPER_START_DISTANCE)
+      );
     }
     const taperStartRadius = this.#ellipsoidMaxRadius * 1.5;
     const maxRadius = this.#ellipsoidMaxRadius * 2;
@@ -1097,17 +1147,43 @@ class CameraController extends EventDispatcher {
       this.#camera.updateProjectionMatrix();
     }
     const source = _vec4.copy(this.#camera.position);
-    const distanceScale = this.#getZoomDistanceScale(zoomAmount, source);
+    // Preserve the established exterior-zoom alignment for the whole step.
+    const useExteriorZoomAlignment =
+      !!this.#ellipsoid && !this.#isPositionInsideEllipsoid(source);
+    const distanceScale = this.#getZoomDistanceScale(
+      zoomAmount,
+      source,
+      hit.virtual ? undefined : hit.point,
+    );
     this.#camera.position
       .copy(source)
       .sub(hit.point)
       .multiplyScalar(1 + (zoomFactor - 1) * distanceScale)
       .add(hit.point);
     this.#limitCameraDistance(hit.point);
+    const keepZoomAnchor =
+      !this.#ellipsoid ||
+      this.#isPositionInsideEllipsoid(this.#camera.position) ||
+      this.#canApplyCameraRollAroundAnchor(hit.point);
+    const wasInsideEllipsoid = this.#isPositionInsideEllipsoid(
+      this.#camera.position,
+    );
     if (this.#isCameraCenterMode()) {
       this.#camera.updateMatrixWorld();
     } else {
-      this.#keepCameraUp(hit.point);
+      this.#keepCameraUp(
+        keepZoomAnchor ? hit.point : undefined,
+        useExteriorZoomAlignment,
+      );
+    }
+    if (
+      !wasInsideEllipsoid &&
+      this.#isPositionInsideEllipsoid(this.#camera.position)
+    ) {
+      this.#limitCameraDistance(hit.point);
+      if (!this.#isCameraCenterMode()) {
+        this.#keepCameraUp(undefined, useExteriorZoomAlignment);
+      }
     }
     this.#camera.updateMatrixWorld();
     if (this.state === DRAG) {
@@ -1115,17 +1191,55 @@ class CameraController extends EventDispatcher {
     }
   }
   #reachCameraMaxDistance() {
-    return (
-      !!this.#ellipsoid &&
-      !this.#isCameraCenterMode() &&
-      this.#camera.position.length() >= this.#ellipsoidMaxRadius * 2
-    );
+    if (!this.#ellipsoid || this.#isCameraCenterMode()) return false;
+    if (
+      this.#hit &&
+      this.#hit.distance > 0 &&
+      !this.#hit.virtual &&
+      this.#isPositionInsideEllipsoid(this.#camera.position) &&
+      this.#camera.position.distanceToSquared(this.#hit.point) >=
+        MAX_INTERIOR_CAMERA_ANCHOR_DISTANCE ** 2
+    ) {
+      return true;
+    }
+    return this.#camera.position.length() >= this.#ellipsoidMaxRadius * 2;
   }
   #isCameraCenterMode() {
     return this.#camera.position.lengthSq() <= CAMERA_CENTER_MODE_DISTANCE_SQ;
   }
+  #isPositionInsideEllipsoid(position) {
+    if (!this.#ellipsoid) return false;
+    return _vec3.copy(position).divide(this.#ellipsoid.radius).lengthSq() < 1;
+  }
+  #canApplyCameraRollAroundAnchor(anchorPoint) {
+    return (
+      anchorPoint.dot(_vec3.subVectors(this.#camera.position, anchorPoint)) >= 0
+    );
+  }
+  #clampCameraDistanceFromPoint(point) {
+    _vec6.subVectors(this.#camera.position, point);
+    const distanceSq = _vec6.lengthSq();
+    if (distanceSq <= MAX_INTERIOR_CAMERA_ANCHOR_DISTANCE ** 2) return;
+    this.#camera.position
+      .copy(point)
+      .addScaledVector(
+        _vec6,
+        MAX_INTERIOR_CAMERA_ANCHOR_DISTANCE / Math.sqrt(distanceSq),
+      );
+  }
   #limitCameraDistance(pivotPosition) {
     if (!this.#ellipsoid || this.#isCameraCenterMode()) return;
+    if (this.#isPositionInsideEllipsoid(this.#camera.position)) {
+      if (pivotPosition) {
+        this.#clampCameraDistanceFromPoint(pivotPosition);
+      }
+      if (
+        this.#isCameraCenterMode() ||
+        this.#isPositionInsideEllipsoid(this.#camera.position)
+      ) {
+        return;
+      }
+    }
     const maxRadius = this.#ellipsoidMaxRadius * 2;
     const currentDistance = this.#camera.position.length();
     if (currentDistance <= maxRadius) return;
@@ -1173,8 +1287,7 @@ class CameraController extends EventDispatcher {
       this.#camera.position.length() >= this.#ellipsoidMaxRadius * 1.05
     );
   }
-  #alignCameraRoll(referenceUp) {
-    _rollRotation.identity();
+  #alignCameraRollForExteriorZoom(referenceUp) {
     this.#camera.getWorldDirection(_forward);
     _up.copy(this.#camera.up).transformDirection(this.#camera.matrixWorld);
     _right.crossVectors(_forward, _up).normalize();
@@ -1184,7 +1297,6 @@ class CameraController extends EventDispatcher {
     }
     _quaternion.setFromUnitVectors(_right, _localRight);
     this.#camera.quaternion.premultiply(_quaternion);
-    _rollRotation.premultiply(_quaternion);
     this.#camera.getWorldDirection(_forward);
     _up.copy(this.#camera.up).transformDirection(this.#camera.matrixWorld);
     _right.crossVectors(_forward, _up).normalize();
@@ -1195,7 +1307,6 @@ class CameraController extends EventDispatcher {
         _axis.crossVectors(_forward, referenceUp).normalize();
         _quaternion.setFromAxisAngle(_axis, forwardAngle);
         this.#camera.quaternion.premultiply(_quaternion);
-        _rollRotation.premultiply(_quaternion);
       } else {
         _axis
           .crossVectors(_forward, _vec4.copy(referenceUp).negate())
@@ -1203,40 +1314,127 @@ class CameraController extends EventDispatcher {
         const negatedAngle = _forward.angleTo(_vec4);
         _quaternion.setFromAxisAngle(_axis, negatedAngle);
         this.#camera.quaternion.premultiply(_quaternion);
-        _rollRotation.premultiply(_quaternion);
       }
     }
-    return _rollRotation;
   }
-  #canApplyCameraRollAroundAnchor(anchorPoint) {
-    return (
-      anchorPoint.dot(_vec3.subVectors(this.#camera.position, anchorPoint)) >= 0
+  #alignCameraRoll(referenceUp) {
+    this.#camera.updateMatrixWorld();
+    _forward.set(0, 0, -1).transformDirection(this.#camera.matrixWorld);
+    _right.set(-1, 0, 0).transformDirection(this.#camera.matrixWorld);
+    // Fade the correction when forward and referenceUp are nearly parallel,
+    // where a unique screen-up direction does not exist.
+    let alpha = MathUtils.mapLinear(
+      1 - Math.abs(_forward.dot(referenceUp)),
+      0,
+      0.2,
+      0,
+      1,
     );
+    alpha = MathUtils.clamp(alpha, 0, 1);
+    // Keep this a pure roll by rotating the camera-side vector around forward.
+    _localRight
+      .crossVectors(referenceUp, _forward)
+      .lerp(_right, 1 - alpha)
+      .normalize();
+    _quaternion.setFromUnitVectors(_right, _localRight);
+    this.#camera.quaternion.premultiply(_quaternion);
   }
-  #keepCameraUp(anchorPoint) {
-    // Near the ellipsoid centre the surface normal is unstable, so fall back to
-    // the world up direction.
-    if (this.#isCameraCenterMode()) {
-      this.#alignCameraRoll(_worldZ);
+  #clampCameraPolarAngle(referenceUp, fixedPoint) {
+    this.#camera.updateMatrixWorld();
+    _forward.set(0, 0, 1).transformDirection(this.#camera.matrixWorld);
+    _right.set(1, 0, 0).transformDirection(this.#camera.matrixWorld);
+    const minVerticalAngle = THRESHOLD;
+    const maxVerticalAngle = Math.PI - THRESHOLD;
+    const verticalAngle = referenceUp.angleTo(_forward);
+    const side = _vec.crossVectors(referenceUp, _forward).dot(_right);
+    let targetAngle;
+    if (side < 0) {
+      // The signed angle wrapped across an endpoint of the legal 0..PI arc.
+      // Select the closest endpoint so crossing PI cannot snap back to zero.
+      targetAngle =
+        verticalAngle < Math.PI / 2 ? minVerticalAngle : maxVerticalAngle;
+    } else if (verticalAngle < minVerticalAngle) {
+      targetAngle = minVerticalAngle;
+    } else if (verticalAngle > maxVerticalAngle) {
+      targetAngle = maxVerticalAngle;
+    } else {
       return;
     }
-    this.#getPositionUpDirection(this.#camera.position, _positionUp);
-    const rollRotation = this.#alignCameraRoll(_positionUp);
-    if (anchorPoint && this.#canApplyCameraRollAroundAnchor(anchorPoint)) {
-      this.#camera.position
-        .sub(anchorPoint)
-        .applyQuaternion(rollRotation)
-        .add(anchorPoint);
+    if (fixedPoint) {
+      // Preserve the complete camera-local anchor position so the final polar
+      // correction cannot move the active rotate / drag point on screen.
+      _anchorLocal
+        .copy(fixedPoint)
+        .applyMatrix4(this.#camera.matrixWorldInverse);
+    }
+    _right.projectOnPlane(referenceUp);
+    if (_right.lengthSq() <= THRESHOLD * THRESHOLD) {
+      if (Math.abs(referenceUp.z) > 0.9) {
+        _axis.set(0, 1, 0);
+      } else {
+        _axis.set(0, 0, 1);
+      }
+      _right.crossVectors(_axis, referenceUp);
+    }
+    _right.normalize();
+    _forward.copy(referenceUp);
+    _quaternion.setFromAxisAngle(_right, targetAngle);
+    _forward.applyQuaternion(_quaternion).normalize();
+    _localUp.crossVectors(_forward, _right).normalize();
+    _rotMatrix.makeBasis(_right, _localUp, _forward);
+    this.#camera.quaternion.setFromRotationMatrix(_rotMatrix);
+    if (fixedPoint) {
+      this.#camera.updateMatrixWorld();
+      _anchorLocal.applyMatrix4(this.#camera.matrixWorld);
+      this.#camera.position.add(
+        _anchorOffset.subVectors(fixedPoint, _anchorLocal),
+      );
+    }
+    this.#camera.updateMatrixWorld();
+  }
+  #keepCameraUp(anchorPoint, useExteriorZoomAlignment = false) {
+    if (anchorPoint) {
+      // Preserve the complete camera-local anchor position. This works on both
+      // sides of the ellipsoid tangent plane and keeps perspective as well as
+      // orthographic projection stable through the roll correction.
+      this.#camera.updateMatrixWorld();
+      _anchorLocal
+        .copy(anchorPoint)
+        .applyMatrix4(this.#camera.matrixWorldInverse);
+    }
+    // Near the ellipsoid centre the surface normal is unstable, so fall back to
+    // the world up direction.
+    const referenceUp = this.#isCameraCenterMode()
+      ? _worldZ
+      : this.#getPositionUpDirection(this.#camera.position, _positionUp);
+    if (useExteriorZoomAlignment) {
+      this.#alignCameraRollForExteriorZoom(referenceUp);
+    } else {
+      this.#alignCameraRoll(referenceUp);
+    }
+    if (anchorPoint) {
+      this.#camera.updateMatrixWorld();
+      _anchorLocal.applyMatrix4(this.#camera.matrixWorld);
+      this.#camera.position.add(
+        _anchorOffset.subVectors(anchorPoint, _anchorLocal),
+      );
+      this.#camera.updateMatrixWorld();
     }
   }
   #normalRaycastClosest(raycaster, objects) {
     const targets = Array.isArray(objects) ? objects : [objects];
     if (targets.length === 0) return null;
     const intersects = raycaster.intersectObjects(targets, true);
-    if (intersects.length > 0) {
+    for (const intersection of intersects) {
+      if (
+        this.#raycastHitFilter &&
+        !this.#raycastHitFilter(intersection, raycaster)
+      ) {
+        continue;
+      }
       return {
-        point: intersects[0].point.clone(),
-        distance: intersects[0].point.distanceTo(this.#camera.position),
+        point: intersection.point.clone(),
+        distance: intersection.point.distanceTo(this.#camera.position),
       };
     }
     return null;
