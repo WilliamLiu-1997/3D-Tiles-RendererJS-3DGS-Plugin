@@ -14,8 +14,7 @@ import {
 } from 'three';
 import { Ellipsoid } from '3d-tiles-renderer';
 
-const CAMERA_CENTER_MODE_DISTANCE = 3000000;
-const CAMERA_CENTER_MODE_DISTANCE_SQ = CAMERA_CENTER_MODE_DISTANCE ** 2;
+const CAMERA_CENTER_MODE_DISTANCE_SQ = 3000000 ** 2;
 
 class PointerTracker {
   buttons;
@@ -325,14 +324,11 @@ const START_EVENT = { type: 'start' };
 const UPDATE_EVENT = { type: 'update' };
 const FINISH_EVENT = { type: 'finish' };
 const THRESHOLD = 1e-3;
-const INTERIOR_CAMERA_ANCHOR_TAPER_START_DISTANCE =
-  (CAMERA_CENTER_MODE_DISTANCE * 2) / 3;
-const MAX_INTERIOR_CAMERA_ANCHOR_DISTANCE =
-  CAMERA_CENTER_MODE_DISTANCE - THRESHOLD;
 const MAX = 1e8;
 const PIVOT_SIZE = 22;
 const PIVOT_THICKNESS = 2.5;
 const VIRTUAL_HIT_DISTANCE = 50;
+const ANCHORED_KEEP_UP_ITERATIONS = 4;
 const _pointer = new Vector2();
 const _pointer1 = new Vector2();
 const _pointer2 = new Vector2();
@@ -548,7 +544,7 @@ class CameraController extends EventDispatcher {
             this.#inertiaValue = 1;
             this.#rotateInertia.set(0, 0);
             this.#zoomInertia = 0;
-            this.#finalizeCamera(false);
+            this.#finalizeDragCamera();
           } else {
             this.#setState(IDLE);
           }
@@ -564,7 +560,7 @@ class CameraController extends EventDispatcher {
           this.#inertiaValue = 1;
           this.#rotateInertia.set(0, 0);
           this.#zoomInertia = 0;
-          this.#finalizeCamera();
+          this.#finalizeDragCamera();
           if (!shouldDragModified && this.#shouldDragModified()) {
             this.#initializeDragAnchor();
           }
@@ -587,11 +583,11 @@ class CameraController extends EventDispatcher {
               _quaternion.setFromAxisAngle(_axis, angle);
               this.#applyCameraRotationAroundOrigin(_quaternion);
             }
-            this.#finalizeCamera(false);
+            this.#finalizeDragCamera();
           } else {
             _vec.copy(this.#dragInertia).multiplyScalar(this.#inertiaValue);
             this.#camera.position.sub(_vec);
-            this.#finalizeCamera();
+            this.#finalizeDragCamera();
           }
           if (!shouldDragModified && this.#shouldDragModified()) {
             this.#initializeDragAnchor();
@@ -863,25 +859,23 @@ class CameraController extends EventDispatcher {
       this.dispatchEvent(FINISH_EVENT);
     }
   };
-  #finalizeCamera(preservePolarAnchor = true) {
+  #finalizeDragCamera() {
+    // Drag movement already determines the camera position. Keep the follow-up
+    // up and polar corrections rotation-only so they do not fix the hit anchor.
+    this.#finalizeCamera(false, false);
+  }
+  #finalizeCamera(preservePolarAnchor = true, preserveKeepUpAnchor = true) {
     const fixedPoint =
       this.#hit && this.#hit.distance > 0 ? this.#hit.point : undefined;
     this.#limitCameraDistance(fixedPoint);
     const wasInsideEllipsoid = this.#isPositionInsideEllipsoid(
       this.#camera.position,
     );
-    if (fixedPoint && !this.#isCameraCenterMode()) {
-      this.#keepCameraUp(fixedPoint);
-    } else {
-      this.#keepCameraUp();
-    }
-    if (
-      !wasInsideEllipsoid &&
-      this.#isPositionInsideEllipsoid(this.#camera.position)
-    ) {
-      this.#limitCameraDistance(fixedPoint);
-      this.#keepCameraUp();
-    }
+    const keepCameraUpAnchor =
+      preserveKeepUpAnchor && !this.#isCameraCenterMode()
+        ? fixedPoint
+        : undefined;
+    this.#convergeCameraUp(keepCameraUpAnchor);
     const isCameraCenterMode = this.#isCameraCenterMode();
     const referenceUp = isCameraCenterMode
       ? _worldZ
@@ -1094,23 +1088,9 @@ class CameraController extends EventDispatcher {
       _vec3,
     );
   }
-  #getZoomDistanceScale(zoomAmount, source, anchorPoint) {
+  #getZoomDistanceScale(zoomAmount, source) {
     if (zoomAmount >= 0 || !this.#ellipsoid || this.#isCameraCenterMode()) {
       return 1;
-    }
-    if (anchorPoint && this.#isPositionInsideEllipsoid(source)) {
-      const currentDistance = source.distanceTo(anchorPoint);
-      if (currentDistance <= INTERIOR_CAMERA_ANCHOR_TAPER_START_DISTANCE) {
-        return 1;
-      }
-      if (currentDistance >= MAX_INTERIOR_CAMERA_ANCHOR_DISTANCE) {
-        return 0;
-      }
-      return (
-        (MAX_INTERIOR_CAMERA_ANCHOR_DISTANCE - currentDistance) /
-        (MAX_INTERIOR_CAMERA_ANCHOR_DISTANCE -
-          INTERIOR_CAMERA_ANCHOR_TAPER_START_DISTANCE)
-      );
     }
     const taperStartRadius = this.#ellipsoidMaxRadius * 1.5;
     const maxRadius = this.#ellipsoidMaxRadius * 2;
@@ -1150,40 +1130,28 @@ class CameraController extends EventDispatcher {
     // Preserve the established exterior-zoom alignment for the whole step.
     const useExteriorZoomAlignment =
       !!this.#ellipsoid && !this.#isPositionInsideEllipsoid(source);
-    const distanceScale = this.#getZoomDistanceScale(
-      zoomAmount,
-      source,
-      hit.virtual ? undefined : hit.point,
-    );
+    const distanceScale = this.#getZoomDistanceScale(zoomAmount, source);
     this.#camera.position
       .copy(source)
       .sub(hit.point)
       .multiplyScalar(1 + (zoomFactor - 1) * distanceScale)
       .add(hit.point);
     this.#limitCameraDistance(hit.point);
-    const keepZoomAnchor =
-      !this.#ellipsoid ||
-      this.#isPositionInsideEllipsoid(this.#camera.position) ||
-      this.#canApplyCameraRollAroundAnchor(hit.point);
     const wasInsideEllipsoid = this.#isPositionInsideEllipsoid(
       this.#camera.position,
     );
-    if (this.#isCameraCenterMode()) {
-      this.#camera.updateMatrixWorld();
-    } else {
-      this.#keepCameraUp(
-        keepZoomAnchor ? hit.point : undefined,
-        useExteriorZoomAlignment,
-      );
-    }
-    if (
-      !wasInsideEllipsoid &&
-      this.#isPositionInsideEllipsoid(this.#camera.position)
-    ) {
-      this.#limitCameraDistance(hit.point);
-      if (!this.#isCameraCenterMode()) {
-        this.#keepCameraUp(undefined, useExteriorZoomAlignment);
-      }
+    const keepZoomAnchor =
+      !this.#ellipsoid ||
+      wasInsideEllipsoid ||
+      this.#isCameraInAnchorExteriorHalfSpace(hit.point);
+    const isCameraCenterMode = this.#isCameraCenterMode();
+    const zoomAnchor =
+      keepZoomAnchor && !isCameraCenterMode ? hit.point : undefined;
+    // Preserve the established exterior zoom pitch adjustment, then use the
+    // standard pure-roll correction to converge against the local up at the
+    // anchor-compensated camera position.
+    if (useExteriorZoomAlignment && !isCameraCenterMode) {
+      this.#coverageCameraUpZoom(zoomAnchor);
     }
     this.#camera.updateMatrixWorld();
     if (this.state === DRAG) {
@@ -1192,16 +1160,6 @@ class CameraController extends EventDispatcher {
   }
   #reachCameraMaxDistance() {
     if (!this.#ellipsoid || this.#isCameraCenterMode()) return false;
-    if (
-      this.#hit &&
-      this.#hit.distance > 0 &&
-      !this.#hit.virtual &&
-      this.#isPositionInsideEllipsoid(this.#camera.position) &&
-      this.#camera.position.distanceToSquared(this.#hit.point) >=
-        MAX_INTERIOR_CAMERA_ANCHOR_DISTANCE ** 2
-    ) {
-      return true;
-    }
     return this.#camera.position.length() >= this.#ellipsoidMaxRadius * 2;
   }
   #isCameraCenterMode() {
@@ -1211,35 +1169,13 @@ class CameraController extends EventDispatcher {
     if (!this.#ellipsoid) return false;
     return _vec3.copy(position).divide(this.#ellipsoid.radius).lengthSq() < 1;
   }
-  #canApplyCameraRollAroundAnchor(anchorPoint) {
+  #isCameraInAnchorExteriorHalfSpace(anchorPoint) {
     return (
       anchorPoint.dot(_vec3.subVectors(this.#camera.position, anchorPoint)) >= 0
     );
   }
-  #clampCameraDistanceFromPoint(point) {
-    _vec6.subVectors(this.#camera.position, point);
-    const distanceSq = _vec6.lengthSq();
-    if (distanceSq <= MAX_INTERIOR_CAMERA_ANCHOR_DISTANCE ** 2) return;
-    this.#camera.position
-      .copy(point)
-      .addScaledVector(
-        _vec6,
-        MAX_INTERIOR_CAMERA_ANCHOR_DISTANCE / Math.sqrt(distanceSq),
-      );
-  }
   #limitCameraDistance(pivotPosition) {
     if (!this.#ellipsoid || this.#isCameraCenterMode()) return;
-    if (this.#isPositionInsideEllipsoid(this.#camera.position)) {
-      if (pivotPosition) {
-        this.#clampCameraDistanceFromPoint(pivotPosition);
-      }
-      if (
-        this.#isCameraCenterMode() ||
-        this.#isPositionInsideEllipsoid(this.#camera.position)
-      ) {
-        return;
-      }
-    }
     const maxRadius = this.#ellipsoidMaxRadius * 2;
     const currentDistance = this.#camera.position.length();
     if (currentDistance <= maxRadius) return;
@@ -1291,7 +1227,7 @@ class CameraController extends EventDispatcher {
     this.#camera.getWorldDirection(_forward);
     _up.copy(this.#camera.up).transformDirection(this.#camera.matrixWorld);
     _right.crossVectors(_forward, _up).normalize();
-    _localRight.crossVectors(_up, referenceUp);
+    _localRight.crossVectors(_up, referenceUp).normalize();
     if (_localRight.dot(_right) < 0) {
       _localRight.negate();
     }
@@ -1420,6 +1356,28 @@ class CameraController extends EventDispatcher {
       );
       this.#camera.updateMatrixWorld();
     }
+  }
+  #coverageCameraUpZoom(anchorPoint) {
+    // Preserving the anchor translates the camera and changes its local
+    // ellipsoid normal. Iterate to converge the final roll against the normal
+    // at the compensated camera position while keeping the anchor fixed.
+    const iterations = anchorPoint ? ANCHORED_KEEP_UP_ITERATIONS * 2 : 1;
+    for (let i = 0; i < iterations; i++) {
+      this.#keepCameraUp(anchorPoint, true);
+      this.#keepCameraUp(anchorPoint);
+    }
+    this.#keepCameraUp(undefined, true);
+    this.#keepCameraUp();
+  }
+  #convergeCameraUp(anchorPoint) {
+    // Preserving the anchor translates the camera and changes its local
+    // ellipsoid normal. Iterate to converge the final roll against the normal
+    // at the compensated camera position while keeping the anchor fixed.
+    const iterations = anchorPoint ? ANCHORED_KEEP_UP_ITERATIONS : 1;
+    for (let i = 0; i < iterations; i++) {
+      this.#keepCameraUp(anchorPoint);
+    }
+    this.#keepCameraUp();
   }
   #normalRaycastClosest(raycaster, objects) {
     const targets = Array.isArray(objects) ? objects : [objects];
