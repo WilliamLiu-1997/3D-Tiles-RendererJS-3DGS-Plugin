@@ -7,6 +7,18 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-07-15
+
+### Changed
+
+- Updated the `3d-tiles-renderer` peer and development dependency to `^0.5.0`.
+
+### Fixed
+
+- Preserved Gaussian primitive transforms when
+  `3d-tiles-renderer@0.5.x` activates a tile by synchronizing each primitive's
+  position, quaternion, and scale with its local matrix.
+
 ## [0.1.14] - 2026-06-19
 
 ### Added

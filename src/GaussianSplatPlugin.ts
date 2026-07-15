@@ -326,8 +326,9 @@ export class GaussianSplatPlugin {
       originalMaterial.dispose();
     }
     mesh.name = 'GaussianSplatTileMesh';
-    mesh.matrixAutoUpdate = false;
     mesh.matrix.copy(descriptor.matrix);
+    mesh.matrix.decompose(mesh.position, mesh.quaternion, mesh.scale);
+    mesh.matrixAutoUpdate = false;
     mesh.matrixWorldNeedsUpdate = true;
     mesh.visible = true;
     mesh.userData.gaussianSplat = true;
