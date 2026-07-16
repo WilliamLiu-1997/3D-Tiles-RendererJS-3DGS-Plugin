@@ -42,8 +42,8 @@ compatibility.
 
 The package peer dependency ranges are:
 
-- `three@^0.180.0`
-- `3d-tiles-renderer@^0.4.25`
+- `three@>=0.185.0`
+- `3d-tiles-renderer@^0.5.0`
 - `@sparkjsdev/spark@^2.1.0`
 
 ## Installation

@@ -7,6 +7,10 @@ Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Raised the minimum supported Three.js version from `0.180.0` to `0.185.0`.
+
 ## [0.1.15] - 2026-07-15
 
 ### Changed
