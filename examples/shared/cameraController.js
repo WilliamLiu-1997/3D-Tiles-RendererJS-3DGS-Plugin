@@ -868,9 +868,6 @@ class CameraController extends EventDispatcher {
     const fixedPoint =
       this.#hit && this.#hit.distance > 0 ? this.#hit.point : undefined;
     this.#limitCameraDistance(fixedPoint);
-    const wasInsideEllipsoid = this.#isPositionInsideEllipsoid(
-      this.#camera.position,
-    );
     const keepCameraUpAnchor =
       preserveKeepUpAnchor && !this.#isCameraCenterMode()
         ? fixedPoint
@@ -1137,13 +1134,8 @@ class CameraController extends EventDispatcher {
       .multiplyScalar(1 + (zoomFactor - 1) * distanceScale)
       .add(hit.point);
     this.#limitCameraDistance(hit.point);
-    const wasInsideEllipsoid = this.#isPositionInsideEllipsoid(
-      this.#camera.position,
-    );
     const keepZoomAnchor =
-      !this.#ellipsoid ||
-      wasInsideEllipsoid ||
-      this.#isCameraInAnchorExteriorHalfSpace(hit.point);
+      !this.#ellipsoid || this.#isCameraInAnchorExteriorHalfSpace(hit.point);
     const isCameraCenterMode = this.#isCameraCenterMode();
     const zoomAnchor =
       keepZoomAnchor && !isCameraCenterMode ? hit.point : undefined;
