@@ -339,6 +339,7 @@ const MAX_DISTANCE_EPSILON_RATIO = 1e-9;
 const MAX = 1e8;
 const PIVOT_SIZE = 22;
 const PIVOT_THICKNESS = 2.5;
+const PIVOT_MIN_VISIBLE_DURATION = 250;
 const VIRTUAL_HIT_DISTANCE = 50;
 const ANCHORED_KEEP_UP_ITERATIONS = 4;
 const ROTATION_OFFSETS = [-2 * Math.PI, 0, 2 * Math.PI];
@@ -379,6 +380,8 @@ class CameraController extends EventDispatcher {
   #camera;
   #scene;
   #pivotMesh;
+  #pivotShownAt;
+  #pivotHideTimeout;
   #raycaster;
   // Remaining input is consumed over subsequent updates; these are not
   // velocities and must never be reapplied without subtracting the amount.
@@ -422,6 +425,8 @@ class CameraController extends EventDispatcher {
       renderer.capabilities.reversedDepthBuffer,
     );
     this.#pivotMesh.visible = false;
+    this.#pivotShownAt = 0;
+    this.#pivotHideTimeout = null;
     this.#zoomDelta = 0;
     this.#zoomInertia = 0;
     this.#lastScrollPointer = new Vector2();
@@ -463,18 +468,50 @@ class CameraController extends EventDispatcher {
   get indicator() {
     return this.#pivotMesh;
   }
+  #clearPivotHideTimeout() {
+    if (this.#pivotHideTimeout !== null) {
+      clearTimeout(this.#pivotHideTimeout);
+      this.#pivotHideTimeout = null;
+    }
+  }
+  #showPivot(restartMinimumDuration = false) {
+    this.#clearPivotHideTimeout();
+    if (!this.#pivotMesh.visible || restartMinimumDuration) {
+      this.#pivotShownAt = performance.now();
+      this.#pivotMesh.visible = true;
+    }
+  }
+  #hidePivot(immediate = false) {
+    this.#clearPivotHideTimeout();
+    if (!this.#pivotMesh.visible) {
+      return;
+    }
+    const remaining =
+      PIVOT_MIN_VISIBLE_DURATION - (performance.now() - this.#pivotShownAt);
+    if (immediate || remaining <= 0) {
+      this.#pivotMesh.visible = false;
+      this.#pivotShownAt = 0;
+      return;
+    }
+    this.#pivotHideTimeout = setTimeout(() => {
+      this.#pivotHideTimeout = null;
+      this.#pivotMesh.visible = false;
+      this.#pivotShownAt = 0;
+      this.dispatchEvent(UPDATE_EVENT);
+    }, remaining);
+  }
   #setState(state = this.state) {
     if (this.state === state) {
       return;
     }
     this.state = state;
     if (state !== NONE) {
-      this.#pivotMesh.visible = true;
+      this.#showPivot();
     }
   }
   #setZooming(zooming, touchZooming = false) {
     if (!this.zooming && this.state === NONE && zooming) {
-      this.#pivotMesh.visible = true;
+      this.#showPivot();
     }
     this.zooming = zooming;
     this.touchZooming = touchZooming;
@@ -490,7 +527,7 @@ class CameraController extends EventDispatcher {
     this.#clearZoomInertia();
     this.#lastScrollPointer.set(0, 0);
     this.#hit = null;
-    this.#pivotMesh.visible = false;
+    this.#hidePivot();
   }
   #clearTransformInertia() {
     this.#rotateInertia.set(0, 0);
@@ -523,6 +560,9 @@ class CameraController extends EventDispatcher {
     }
     const queuedDelta = nextPending - pending;
     this.#zoomDelta += queuedDelta;
+    if (queuedDelta !== 0 && this.#hit !== null && this.#hit.distance > 0) {
+      this.#showPivot(true);
+    }
     return queuedDelta !== 0;
   }
   #getDamping() {
@@ -836,6 +876,7 @@ class CameraController extends EventDispatcher {
     this.#domElement.removeEventListener('pointercancel', this.#pointerUp);
     this.#domElement.removeEventListener('wheel', this.#wheel);
     this.#domElement.removeEventListener('pointerenter', this.#pointerEnter);
+    this.#hidePivot(true);
     this.#pivotMesh.removeFromParent();
     this.#pivotMesh.dispose();
     this.#domElement.style.touchAction = '';
@@ -893,7 +934,11 @@ class CameraController extends EventDispatcher {
       mouseToCoords(_pointer1.x, _pointer1.y, this.#domElement, _pointer1);
       setRaycasterFromCamera(this.#raycaster, _pointer1, this.#camera);
       this.#hit = this.#raycast(this.#raycaster);
-      this.#pivotMesh.visible = this.#hit.distance > 0;
+      if (this.#hit.distance > 0) {
+        this.#showPivot();
+      } else {
+        this.#hidePivot();
+      }
       this.#pivotMesh.position.copy(this.#hit.point);
       this.#pivotMesh.focus = !this.#hit.onGlobe;
       if (this.state === DRAG && this.#hit.distance > 0) {
@@ -986,11 +1031,11 @@ class CameraController extends EventDispatcher {
       setRaycasterFromCamera(this.#raycaster, _pointer1, this.#camera);
       this.#hit = this.#raycast(this.#raycaster);
       if (this.#hit.distance > 0) {
-        this.#pivotMesh.visible = true;
+        this.#showPivot();
         this.#pivotMesh.position.copy(this.#hit.point);
         this.#pivotMesh.focus = !this.#hit.onGlobe;
       } else {
-        this.#pivotMesh.visible = false;
+        this.#hidePivot();
       }
     }
     let delta = 0;
