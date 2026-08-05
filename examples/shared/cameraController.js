@@ -56,7 +56,7 @@ class PointerTracker {
   }
   setHoverEvent(e) {
     if (e.pointerType === 'mouse' || e.type === 'wheel') {
-      this.getAdjustedPointer(e, this.hoverPosition);
+      this.getClientPointer(e, this.hoverPosition);
       this.hoverSet = true;
     }
   }
@@ -71,18 +71,15 @@ class PointerTracker {
       return null;
     }
   }
-  // get the pointer position in the coordinate system of the target element
-  getAdjustedPointer(e, target) {
-    const domRef = e.target;
-    const rect = domRef.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    target.set(x, y);
+  // Keep pointer positions in viewport coordinates. mouseToCoords converts
+  // them to element-local NDC exactly once when a ray is needed.
+  getClientPointer(e, target) {
+    target.set(e.clientX, e.clientY);
   }
   addPointer(e) {
     const id = e.pointerId;
     const position = new Vector2();
-    this.getAdjustedPointer(e, position);
+    this.getClientPointer(e, position);
     if (this.pointerOrder.indexOf(id) === -1) {
       this.pointerOrder.push(id);
     }
@@ -99,7 +96,7 @@ class PointerTracker {
     if (!(id in this.pointerPositions)) {
       return false;
     }
-    this.getAdjustedPointer(e, this.pointerPositions[id]);
+    this.getClientPointer(e, this.pointerPositions[id]);
     return true;
   }
   deletePointer(e) {
