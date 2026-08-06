@@ -1,20 +1,94 @@
-import { toHalf } from '@sparkjsdev/spark';
+import { fromHalf, toHalf } from '@sparkjsdev/spark';
 
 const SPLAT_OPACITY_EXTENSION_NAME = 'EXT_splat_opacity';
+const SPLAT_OPACITY_VERSION_2 = 2;
+const SPLAT_OPACITY_SOURCE_ENCODING = 'float16';
+const SPLAT_OPACITY_COVERAGE_BOOST_METHOD = 'opacity_anisotropic_v1';
+const GL_UNSIGNED_SHORT = 5123;
 const GL_FLOAT = 5126;
+const UNSIGNED_SHORT_BYTE_SIZE = 2;
 const FLOAT_BYTE_SIZE = 4;
+const UINT16_MAX = 65535;
+const FLOAT16_MAX = 65504;
+const MAX_COVERAGE_BOOST_OPACITY = 1000;
+export const DEFAULT_TARGET_COVERAGE_BOOST_SCALE = 0.1;
+const MIN_SPARK_LOD_OPACITY = 0.000001;
+const MAX_SPARK_LOD_OPACITY = 1000;
 
 type GaussianBufferCollection = ReadonlyArray<Uint8Array | undefined>;
 
-export type SplatOpacityAccessorSource = {
-  buffer: Uint8Array;
-  byteOffset: number;
+type ScalarAccessorSource = {
   count: number;
   byteStride: number;
-  directView?: Float32Array;
+  dataView: DataView;
+  directFloatView?: Float32Array;
 };
 
-function getBufferView(json: any, bufferViewIndex: number, label: string) {
+export type SplatOpacityExtensionSource =
+  | {
+      version: 1;
+      opacityAccessorIndex: number;
+    }
+  | {
+      version: 2;
+      sourceOpacityAccessorIndex: number;
+      coverageBoostRatioAccessorIndex: number;
+      coverageBoostScale: number;
+    };
+
+export type SplatOpacityExtensionData =
+  | {
+      version: 1;
+      opacitySource: ScalarAccessorSource;
+    }
+  | {
+      version: 2;
+      sourceOpacitySource: ScalarAccessorSource;
+      coverageBoostRatioSource: ScalarAccessorSource;
+      coverageBoostScale: number;
+    };
+
+type ScalarAccessorRequirements = {
+  componentType: number;
+  componentByteSize: number;
+  normalized: boolean;
+  label: string;
+  legacyByteLayout?: boolean;
+};
+
+const V1_OPACITY_ACCESSOR_REQUIREMENTS: ScalarAccessorRequirements = {
+  componentType: GL_FLOAT,
+  componentByteSize: FLOAT_BYTE_SIZE,
+  normalized: false,
+  label: 'opacity',
+  legacyByteLayout: true,
+};
+
+const V2_SOURCE_OPACITY_ACCESSOR_REQUIREMENTS: ScalarAccessorRequirements = {
+  componentType: GL_UNSIGNED_SHORT,
+  componentByteSize: UNSIGNED_SHORT_BYTE_SIZE,
+  normalized: false,
+  label: 'source opacity',
+};
+
+const V2_COVERAGE_RATIO_ACCESSOR_REQUIREMENTS: ScalarAccessorRequirements = {
+  componentType: GL_UNSIGNED_SHORT,
+  componentByteSize: UNSIGNED_SHORT_BYTE_SIZE,
+  normalized: true,
+  label: 'coverage boost ratio',
+};
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function getBufferView(json: any, bufferViewIndex: unknown, label: string) {
+  if (!isNonNegativeInteger(bufferViewIndex)) {
+    throw new Error(
+      `GaussianSplatPlugin: ${label} accessor must reference a bufferView.`,
+    );
+  }
+
   const bufferView = json.bufferViews?.[bufferViewIndex];
   if (!bufferView) {
     throw new Error(`GaussianSplatPlugin: Missing ${label} bufferView.`);
@@ -23,177 +97,544 @@ function getBufferView(json: any, bufferViewIndex: number, label: string) {
   return bufferView;
 }
 
-function getOpacityAccessor(json: any, accessorIndex: number) {
+function getScalarAccessorDefinition(
+  json: any,
+  accessorIndex: number,
+  requirements: ScalarAccessorRequirements,
+) {
+  const { componentType, componentByteSize, normalized, label } = requirements;
   const accessor = json.accessors?.[accessorIndex];
   if (!accessor) {
     throw new Error(
-      `GaussianSplatPlugin: Missing opacity accessor ${accessorIndex}.`,
+      `GaussianSplatPlugin: Missing ${label} accessor ${accessorIndex}.`,
     );
   }
-
-  return accessor;
-}
-
-export function getSplatOpacityAccessorIndex(
-  primitive: any,
-  gaussianExtension: any,
-) {
-  const opacityExtension =
-    gaussianExtension.extensions?.[SPLAT_OPACITY_EXTENSION_NAME] ??
-    primitive?.extensions?.[SPLAT_OPACITY_EXTENSION_NAME];
-
-  if (!opacityExtension) {
-    return null;
-  }
-
-  const opacityAccessor = opacityExtension.opacityAccessor;
-  if (opacityAccessor === undefined) {
-    return null;
-  }
-
-  if (!Number.isInteger(opacityAccessor) || opacityAccessor < 0) {
-    throw new Error(
-      `GaussianSplatPlugin: ${SPLAT_OPACITY_EXTENSION_NAME}.opacityAccessor must be a non-negative integer.`,
-    );
-  }
-
-  return opacityAccessor;
-}
-
-export function getSplatOpacityBufferIndex(json: any, accessorIndex: number) {
-  const accessor = getOpacityAccessor(json, accessorIndex);
-  const bufferView = getBufferView(json, accessor.bufferView, 'opacity');
-  return bufferView.buffer ?? 0;
-}
-
-export function loadSplatOpacityAccessorSource(
-  json: any,
-  buffers: GaussianBufferCollection,
-  accessorIndex: number,
-): SplatOpacityAccessorSource {
-  const accessor = getOpacityAccessor(json, accessorIndex);
   if (accessor.sparse) {
     throw new Error(
-      'GaussianSplatPlugin: Sparse opacity accessors are not supported.',
+      `GaussianSplatPlugin: Sparse ${label} accessors are not supported.`,
     );
   }
-  if (accessor.componentType !== GL_FLOAT || accessor.type !== 'SCALAR') {
+  if (accessor.componentType !== componentType || accessor.type !== 'SCALAR') {
+    const expectedComponent =
+      componentType === GL_FLOAT ? 'FLOAT' : 'UNSIGNED_SHORT';
     throw new Error(
-      'GaussianSplatPlugin: splat opacityAccessor must be FLOAT SCALAR.',
+      `GaussianSplatPlugin: ${label} accessor must be ${expectedComponent} SCALAR.`,
     );
   }
-
-  const bufferViewIndex = accessor.bufferView;
-  const bufferView = getBufferView(json, bufferViewIndex, 'opacity');
-  const bufferIndex = bufferView.buffer ?? 0;
-  const binaryChunk = buffers[bufferIndex];
-  if (!binaryChunk) {
+  if (
+    normalized
+      ? accessor.normalized !== true
+      : accessor.normalized !== undefined && accessor.normalized !== false
+  ) {
     throw new Error(
-      `GaussianSplatPlugin: Missing buffer ${bufferIndex} for opacity accessor.`,
+      `GaussianSplatPlugin: ${label} accessor has an invalid normalized flag.`,
     );
   }
 
   const count = accessor.count ?? 0;
-  if (!Number.isInteger(count) || count < 0) {
+  if (!isNonNegativeInteger(count)) {
     throw new Error(
-      'GaussianSplatPlugin: opacity accessor count must be a non-negative integer.',
+      `GaussianSplatPlugin: ${label} accessor count must be a non-negative integer.`,
     );
   }
-  if (count === 0) {
-    return {
-      buffer: binaryChunk,
-      byteOffset: 0,
-      count,
-      byteStride: FLOAT_BYTE_SIZE,
-    };
+
+  const bufferView = getBufferView(json, accessor.bufferView, label);
+  const bufferIndex = bufferView.buffer ?? 0;
+  const bufferDefinition = json.buffers?.[bufferIndex];
+  if (!isNonNegativeInteger(bufferIndex) || !bufferDefinition) {
+    throw new Error(
+      `GaussianSplatPlugin: Missing buffer ${String(bufferIndex)} for ${label} accessor.`,
+    );
+  }
+  const declaredBufferByteLength = bufferDefinition.byteLength;
+  if (!isNonNegativeInteger(declaredBufferByteLength)) {
+    throw new Error(
+      `GaussianSplatPlugin: Buffer ${bufferIndex} has an invalid byteLength.`,
+    );
   }
 
   const bufferViewByteOffset = bufferView.byteOffset ?? 0;
-  const bufferViewByteLength = bufferView.byteLength ?? 0;
+  const bufferViewByteLength = bufferView.byteLength;
   const accessorByteOffset = accessor.byteOffset ?? 0;
-  const byteStride = bufferView.byteStride ?? FLOAT_BYTE_SIZE;
-  if (byteStride < FLOAT_BYTE_SIZE) {
+  if (
+    !isNonNegativeInteger(bufferViewByteOffset) ||
+    !isNonNegativeInteger(bufferViewByteLength) ||
+    !isNonNegativeInteger(accessorByteOffset)
+  ) {
     throw new Error(
-      `GaussianSplatPlugin: opacity accessor byteStride must be at least ${FLOAT_BYTE_SIZE}.`,
+      `GaussianSplatPlugin: ${label} accessor has invalid byte bounds.`,
     );
   }
 
-  const byteLength = (count - 1) * byteStride + FLOAT_BYTE_SIZE;
-  const accessorEndInView = accessorByteOffset + byteLength;
-  if (accessorEndInView > bufferViewByteLength) {
-    throw new Error('GaussianSplatPlugin: opacity accessor is truncated.');
+  const declaredByteStride = bufferView.byteStride;
+  let byteStride = componentByteSize;
+  if (declaredByteStride !== undefined) {
+    const invalidLegacyStride =
+      requirements.legacyByteLayout === true &&
+      (!Number.isSafeInteger(declaredByteStride) ||
+        declaredByteStride < componentByteSize);
+    const invalidGltfStride =
+      requirements.legacyByteLayout !== true &&
+      (!Number.isSafeInteger(declaredByteStride) ||
+        declaredByteStride < 4 ||
+        declaredByteStride > 252 ||
+        declaredByteStride % 4 !== 0 ||
+        declaredByteStride % componentByteSize !== 0);
+    if (invalidLegacyStride || invalidGltfStride) {
+      throw new Error(
+        `GaussianSplatPlugin: ${label} accessor has an invalid byteStride.`,
+      );
+    }
+    byteStride = declaredByteStride;
   }
 
-  const byteOffset = bufferViewByteOffset + accessorByteOffset;
-  const byteEnd = byteOffset + byteLength;
-  if (byteEnd > binaryChunk.byteLength) {
-    throw new Error('GaussianSplatPlugin: opacity buffer is truncated.');
-  }
-
-  let directView: Float32Array | undefined;
   if (
-    byteStride === FLOAT_BYTE_SIZE &&
-    (binaryChunk.byteOffset + byteOffset) % FLOAT_BYTE_SIZE === 0
+    requirements.legacyByteLayout !== true &&
+    (bufferViewByteOffset + accessorByteOffset) % componentByteSize !== 0
   ) {
-    directView = new Float32Array(
+    throw new Error(
+      `GaussianSplatPlugin: ${label} accessor is not component-aligned.`,
+    );
+  }
+
+  const byteLength =
+    count === 0 ? 0 : (count - 1) * byteStride + componentByteSize;
+  const accessorEndInView = accessorByteOffset + byteLength;
+  const bufferViewEnd = bufferViewByteOffset + bufferViewByteLength;
+  if (
+    !Number.isSafeInteger(byteLength) ||
+    !Number.isSafeInteger(accessorEndInView) ||
+    accessorEndInView > bufferViewByteLength ||
+    !Number.isSafeInteger(bufferViewEnd) ||
+    bufferViewEnd > declaredBufferByteLength
+  ) {
+    throw new Error(`GaussianSplatPlugin: ${label} accessor is truncated.`);
+  }
+
+  return {
+    accessorByteOffset,
+    bufferIndex,
+    bufferViewByteLength,
+    bufferViewByteOffset,
+    byteLength,
+    byteStride,
+    count,
+  };
+}
+
+function loadScalarAccessorSource(
+  json: any,
+  buffers: GaussianBufferCollection,
+  accessorIndex: number,
+  requirements: ScalarAccessorRequirements,
+): ScalarAccessorSource {
+  const definition = getScalarAccessorDefinition(
+    json,
+    accessorIndex,
+    requirements,
+  );
+  const binaryChunk = buffers[definition.bufferIndex];
+  if (!binaryChunk) {
+    throw new Error(
+      `GaussianSplatPlugin: Missing buffer ${definition.bufferIndex} for ${requirements.label} accessor.`,
+    );
+  }
+
+  const bufferViewEnd =
+    definition.bufferViewByteOffset + definition.bufferViewByteLength;
+  if (
+    !Number.isSafeInteger(bufferViewEnd) ||
+    bufferViewEnd > binaryChunk.byteLength
+  ) {
+    throw new Error(
+      `GaussianSplatPlugin: ${requirements.label} bufferView is truncated.`,
+    );
+  }
+
+  const byteOffset =
+    definition.bufferViewByteOffset + definition.accessorByteOffset;
+  const byteEnd = byteOffset + definition.byteLength;
+  if (!Number.isSafeInteger(byteEnd) || byteEnd > binaryChunk.byteLength) {
+    throw new Error(
+      `GaussianSplatPlugin: ${requirements.label} buffer is truncated.`,
+    );
+  }
+
+  const absoluteByteOffset = binaryChunk.byteOffset + byteOffset;
+  const dataView = new DataView(
+    binaryChunk.buffer,
+    absoluteByteOffset,
+    definition.byteLength,
+  );
+  let directFloatView: Float32Array | undefined;
+  if (
+    requirements.componentType === GL_FLOAT &&
+    definition.byteStride === FLOAT_BYTE_SIZE &&
+    absoluteByteOffset % FLOAT_BYTE_SIZE === 0
+  ) {
+    directFloatView = new Float32Array(
       binaryChunk.buffer,
-      binaryChunk.byteOffset + byteOffset,
-      count,
+      absoluteByteOffset,
+      definition.count,
     );
   }
 
   return {
-    buffer: binaryChunk,
-    byteOffset,
-    count,
-    byteStride,
-    directView,
+    count: definition.count,
+    byteStride: definition.byteStride,
+    dataView,
+    directFloatView,
   };
 }
 
-export function applySplatOpacityOverrideToArray(
-  extA: Uint32Array,
-  numSplats: number,
-  opacitySource: SplatOpacityAccessorSource | null,
-) {
-  if (!opacitySource) {
-    return;
+function getExtensionObject(primitive: any, gaussianExtension: any) {
+  const extension =
+    gaussianExtension.extensions?.[SPLAT_OPACITY_EXTENSION_NAME] ??
+    primitive?.extensions?.[SPLAT_OPACITY_EXTENSION_NAME];
+  return extension && typeof extension === 'object' ? extension : null;
+}
+
+export function getSplatOpacityExtensionSource(
+  primitive: any,
+  gaussianExtension: any,
+): SplatOpacityExtensionSource | null {
+  const extension = getExtensionObject(primitive, gaussianExtension);
+  if (!extension) {
+    return null;
   }
 
+  if (extension.version === undefined || extension.version === 1) {
+    const opacityAccessorIndex = extension.opacityAccessor;
+    if (opacityAccessorIndex === undefined) {
+      return null;
+    }
+    if (!isNonNegativeInteger(opacityAccessorIndex)) {
+      throw new Error(
+        `GaussianSplatPlugin: ${SPLAT_OPACITY_EXTENSION_NAME}.opacityAccessor must be a non-negative integer.`,
+      );
+    }
+
+    return {
+      version: 1,
+      opacityAccessorIndex,
+    };
+  }
+
+  if (extension.version !== SPLAT_OPACITY_VERSION_2) {
+    return null;
+  }
+
+  const sourceOpacityAccessorIndex = extension.sourceOpacityAccessor;
+  const coverageBoostRatioAccessorIndex =
+    extension.coverageBoostRatioAccessor;
+  const coverageBoostScale = extension.coverageBoostScale;
+  if (
+    !isNonNegativeInteger(sourceOpacityAccessorIndex) ||
+    extension.sourceOpacityEncoding !== SPLAT_OPACITY_SOURCE_ENCODING ||
+    !isNonNegativeInteger(coverageBoostRatioAccessorIndex) ||
+    extension.coverageBoostMethod !==
+      SPLAT_OPACITY_COVERAGE_BOOST_METHOD ||
+    typeof coverageBoostScale !== 'number' ||
+    !Number.isFinite(coverageBoostScale) ||
+    coverageBoostScale < 0
+  ) {
+    return null;
+  }
+
+  return {
+    version: 2,
+    sourceOpacityAccessorIndex,
+    coverageBoostRatioAccessorIndex,
+    coverageBoostScale,
+  };
+}
+
+export function collectSplatOpacityBufferIndices(
+  json: any,
+  source: SplatOpacityExtensionSource | null,
+) {
+  if (!source) {
+    return [];
+  }
+
+  if (source.version === 1) {
+    const definition = getScalarAccessorDefinition(
+      json,
+      source.opacityAccessorIndex,
+      V1_OPACITY_ACCESSOR_REQUIREMENTS,
+    );
+    return [definition.bufferIndex];
+  }
+
+  try {
+    const sourceOpacityDefinition = getScalarAccessorDefinition(
+      json,
+      source.sourceOpacityAccessorIndex,
+      V2_SOURCE_OPACITY_ACCESSOR_REQUIREMENTS,
+    );
+    const ratioDefinition = getScalarAccessorDefinition(
+      json,
+      source.coverageBoostRatioAccessorIndex,
+      V2_COVERAGE_RATIO_ACCESSOR_REQUIREMENTS,
+    );
+    return [
+      ...new Set([
+        sourceOpacityDefinition.bufferIndex,
+        ratioDefinition.bufferIndex,
+      ]),
+    ];
+  } catch {
+    return [];
+  }
+}
+
+export function loadSplatOpacityExtensionData(
+  json: any,
+  buffers: GaussianBufferCollection,
+  source: SplatOpacityExtensionSource | null,
+): SplatOpacityExtensionData | null {
+  if (!source) {
+    return null;
+  }
+
+  if (source.version === 1) {
+    return {
+      version: 1,
+      opacitySource: loadScalarAccessorSource(
+        json,
+        buffers,
+        source.opacityAccessorIndex,
+        V1_OPACITY_ACCESSOR_REQUIREMENTS,
+      ),
+    };
+  }
+
+  try {
+    return {
+      version: 2,
+      sourceOpacitySource: loadScalarAccessorSource(
+        json,
+        buffers,
+        source.sourceOpacityAccessorIndex,
+        V2_SOURCE_OPACITY_ACCESSOR_REQUIREMENTS,
+      ),
+      coverageBoostRatioSource: loadScalarAccessorSource(
+        json,
+        buffers,
+        source.coverageBoostRatioAccessorIndex,
+        V2_COVERAGE_RATIO_ACCESSOR_REQUIREMENTS,
+      ),
+      coverageBoostScale: source.coverageBoostScale,
+    };
+  } catch {
+    // Version 2 is optional. If its payload cannot be consumed then the SPZ
+    // opacity and converter-boosted scales remain the interoperability fallback.
+    return null;
+  }
+}
+
+function readFloat32(source: ScalarAccessorSource, index: number) {
+  return source.directFloatView
+    ? source.directFloatView[index]
+    : source.dataView.getFloat32(index * source.byteStride, true);
+}
+
+function readUint16(source: ScalarAccessorSource, index: number) {
+  return source.dataView.getUint16(index * source.byteStride, true);
+}
+
+function writeSparkOpacity(
+  extA: Uint32Array,
+  wordIndex: number,
+  opacity: number,
+) {
+  extA[wordIndex] = (extA[wordIndex] & 0xffff0000) | toHalf(opacity);
+}
+
+function applyVersion1Opacity(
+  extA: Uint32Array,
+  numSplats: number,
+  opacitySource: ScalarAccessorSource,
+) {
   const count = Math.min(
     opacitySource.count,
     numSplats,
     Math.floor(extA.length / 4),
   );
+  let applied = false;
+  for (let i = 0, wordIndex = 3; i < count; i++, wordIndex += 4) {
+    const opacity = readFloat32(opacitySource, i);
+    if (!(opacity >= 0 && opacity < Infinity)) {
+      continue;
+    }
+
+    writeSparkOpacity(extA, wordIndex, opacity);
+    applied = true;
+  }
+  return applied;
+}
+
+function encodeSparkDisplayOpacity(opacity: number) {
+  if (opacity <= 1) {
+    return opacity;
+  }
+  const clamped = Math.min(
+    MAX_SPARK_LOD_OPACITY,
+    Math.max(MIN_SPARK_LOD_OPACITY, opacity),
+  );
+  const lodOpacity = Math.sqrt(1 + Math.E * Math.log(clamped));
+  return Math.min(2, Math.max(1, 1 + (lodOpacity - 1) / 4));
+}
+
+function getLargestScaleAxis(x: number, y: number, z: number) {
+  if (x >= y && x >= z) {
+    return 0;
+  }
+  return y >= z ? 1 : 2;
+}
+
+function getVersion2RetargetValues(
+  sourceOpacity: number,
+  ratio: number,
+  fileCoverageBoostScale: number,
+  targetCoverageBoostScale: number,
+) {
+  const opacityFactor =
+    Math.sqrt(Math.min(sourceOpacity, MAX_COVERAGE_BOOST_OPACITY)) - 1;
+  const fileRestFactor = 1 + fileCoverageBoostScale * opacityFactor;
+  const targetRestFactor = 1 + targetCoverageBoostScale * opacityFactor;
+  const ratioFactor = ratio / (1 - ratio + ratio * ratio);
+  const fileTopFactor = 1 + (fileRestFactor - 1) * ratioFactor;
+  const targetTopFactor = 1 + (targetRestFactor - 1) * ratioFactor;
+  return {
+    displayOpacity: encodeSparkDisplayOpacity(
+      sourceOpacity / (targetRestFactor * targetRestFactor),
+    ),
+    restLogDelta: Math.log(targetRestFactor / fileRestFactor),
+    topLogDelta: Math.log(targetTopFactor / fileTopFactor),
+  };
+}
+
+function applyVersion2OpacityAndRetargetCoverageBoost(
+  extArrays: [Uint32Array, Uint32Array],
+  numSplats: number,
+  data: Extract<SplatOpacityExtensionData, { version: 2 }>,
+  targetCoverageBoostScale: number,
+) {
+  const [extA, extB] = extArrays;
+  const count = Math.min(
+    data.sourceOpacitySource.count,
+    data.coverageBoostRatioSource.count,
+    numSplats,
+    Math.floor(extA.length / 4),
+    Math.floor(extB.length / 4),
+  );
   if (count <= 0) {
-    return;
+    return false;
   }
 
-  const directView = opacitySource.directView;
-  if (directView) {
-    for (let i = 0, offset = 3; i < count; i++, offset += 4) {
-      const opacity = directView[i];
-      if (!(opacity >= 0 && opacity < Infinity)) {
-        continue;
-      }
-
-      // Spark packs opacity into the low 16 bits of word i*4+3.
-      extA[offset] = toHalf(opacity);
+  const retainedCoverageBoostScale = Math.min(
+    data.coverageBoostScale,
+    targetCoverageBoostScale,
+  );
+  // Accessor structure and bounds were validated while loading. Calculate and
+  // validate a complete splat update before writing it, so invalid values keep
+  // the SPZ fallback without requiring a separate full-payload validation pass.
+  let applied = false;
+  for (let i = 0, base = 0; i < count; i++, base += 4) {
+    const sourceOpacity = fromHalf(readUint16(data.sourceOpacitySource, i));
+    if (
+      !(sourceOpacity >= 0 && sourceOpacity < Infinity) ||
+      sourceOpacity <= 1
+    ) {
+      continue;
     }
-  } else {
-    const byteLength = (count - 1) * opacitySource.byteStride + FLOAT_BYTE_SIZE;
-    const dataView = new DataView(
-      opacitySource.buffer.buffer,
-      opacitySource.buffer.byteOffset + opacitySource.byteOffset,
-      byteLength,
+
+    const ratio =
+      readUint16(data.coverageBoostRatioSource, i) / UINT16_MAX;
+    const values = getVersion2RetargetValues(
+      sourceOpacity,
+      ratio,
+      data.coverageBoostScale,
+      retainedCoverageBoostScale,
     );
-    for (let i = 0, offset = 3; i < count; i++, offset += 4) {
-      const opacity = dataView.getFloat32(i * opacitySource.byteStride, true);
-      if (!(opacity >= 0 && opacity < Infinity)) {
+    if (
+      !Number.isFinite(values.displayOpacity) ||
+      !Number.isFinite(values.restLogDelta) ||
+      !Number.isFinite(values.topLogDelta)
+    ) {
+      continue;
+    }
+
+    if (values.restLogDelta !== 0 || values.topLogDelta !== 0) {
+      const scaleLogX = fromHalf(extB[base + 1] >>> 16);
+      const scaleLogY = fromHalf(extB[base + 2] & UINT16_MAX);
+      const scaleLogZ = fromHalf(extB[base + 2] >>> 16);
+      const largestAxis = getLargestScaleAxis(
+        scaleLogX,
+        scaleLogY,
+        scaleLogZ,
+      );
+      const updatedScaleLogX =
+        scaleLogX +
+        (largestAxis === 0 ? values.topLogDelta : values.restLogDelta);
+      const updatedScaleLogY =
+        scaleLogY +
+        (largestAxis === 1 ? values.topLogDelta : values.restLogDelta);
+      const updatedScaleLogZ =
+        scaleLogZ +
+        (largestAxis === 2 ? values.topLogDelta : values.restLogDelta);
+      if (
+        !Number.isFinite(updatedScaleLogX) ||
+        !Number.isFinite(updatedScaleLogY) ||
+        !Number.isFinite(updatedScaleLogZ) ||
+        Math.abs(updatedScaleLogX) > FLOAT16_MAX ||
+        Math.abs(updatedScaleLogY) > FLOAT16_MAX ||
+        Math.abs(updatedScaleLogZ) > FLOAT16_MAX
+      ) {
         continue;
       }
 
-      extA[offset] = toHalf(opacity);
+      const scaleX = toHalf(updatedScaleLogX);
+      const scaleY = toHalf(updatedScaleLogY);
+      const scaleZ = toHalf(updatedScaleLogZ);
+      extB[base + 1] =
+        (extB[base + 1] & 0x0000ffff) | (scaleX << 16);
+      extB[base + 2] = scaleY | (scaleZ << 16);
     }
+
+    writeSparkOpacity(extA, base + 3, values.displayOpacity);
+    applied = true;
   }
+
+  return applied;
+}
+
+export function applySplatOpacityExtensionToArrays(
+  extArrays: [Uint32Array, Uint32Array],
+  numSplats: number,
+  data: SplatOpacityExtensionData | null,
+  targetCoverageBoostScale = DEFAULT_TARGET_COVERAGE_BOOST_SCALE,
+) {
+  if (!data) {
+    return false;
+  }
+
+  if (data.version === 1) {
+    return applyVersion1Opacity(extArrays[0], numSplats, data.opacitySource);
+  }
+
+  if (
+    !Number.isFinite(targetCoverageBoostScale) ||
+    targetCoverageBoostScale < 0
+  ) {
+    return false;
+  }
+
+  return applyVersion2OpacityAndRetargetCoverageBoost(
+    extArrays,
+    numSplats,
+    data,
+    targetCoverageBoostScale,
+  );
 }

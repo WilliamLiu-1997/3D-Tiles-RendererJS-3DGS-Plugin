@@ -7,9 +7,53 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-08-06
+
+### Added
+
+- Added `EXT_splat_opacity` version 2 support for converter-authored binary16
+  source opacity, normalized pre-boost `sMid / sMax` ratios, and
+  `opacity_anisotropic_v1` coverage metadata while preserving version 1
+  compatibility.
+- Added the `targetCoverageBoostScale` plugin option to cap the converter
+  coverage boost retained from version 2 content. It defaults to `0.1`, accepts
+  `0` to remove the recorded boost, and never increases the boost beyond the
+  value recorded in the file.
+
 ### Changed
 
 - Raised the minimum supported Three.js version from `0.180.0` to `0.185.0`.
+- Version 2 processing retargets the recorded anisotropic scale boost, divides
+  source opacity by the retained two-axis area growth, and applies Spark's
+  high-opacity encoding. Splats with source opacity less than or equal to `1`
+  retain their SPZ-decoded scales and opacity.
+- Optimized version 2 loading for the converter's interleaved layout: the plugin
+  reads the already-loaded GLB bytes without copying or deinterleaving them and
+  validates and applies matched splats in one pass before Spark texture creation.
+- Version 2 extension buffers remain optional. Unsupported metadata and
+  malformed or unavailable accessors leave the complete SPZ fallback intact;
+  invalid individual values and unmatched splats keep their own SPZ-decoded
+  opacity and boosted scales while other valid splats can still be applied.
+- Reworked the shared example camera controller to consume rotate, drag, and
+  zoom input through bounded damping, preserve interaction anchors and
+  ellipsoid-up alignment, and track movement lifecycle events consistently.
+- Replaced the example camera controller's `enableDamping` / `dampingFactor`
+  settings with `damping` (default `0.15`), exported its state constants, and
+  added `getPivotPoint()`.
+
+### Removed
+
+- Removed `encodeLinear` from the supported `sparkRendererOptions` subset.
+
+### Fixed
+
+- Hardened `EXT_splat_opacity` accessor validation for component types,
+  normalization, strides, and declared and loaded byte bounds.
+- Kept the example camera pivot indicator visible briefly after interaction and
+  above Gaussian splats with both standard and reversed depth buffers.
+- Fixed duplicate pointer coordinate conversion in the example camera
+  controller so picking remains aligned when its DOM element is offset within
+  the viewport.
 
 ## [0.1.15] - 2026-07-15
 

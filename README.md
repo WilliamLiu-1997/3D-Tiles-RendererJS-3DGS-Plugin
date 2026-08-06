@@ -31,6 +31,7 @@ compatibility.
 - Supports both explicit and implicit 3D Tiles tiling schemes
 - Supports `gltf` and `glb` tile payloads containing compressed Gaussian splats
 - Builds `SplatMesh` instances from SPZ-compressed primitive data
+- Supports legacy v1 and converter v2 `EXT_splat_opacity` payloads
 - Shares one Spark renderer per scene / WebGLRenderer pair
 - Accepts `sparkRendererOptions` to forward a supported subset of Spark renderer settings
 - Re-bases splat rendering around the active camera to reduce large-world
@@ -78,6 +79,8 @@ tiles.registerPlugin(
     renderer,
     scene,
     minRaycastOpacity: 0.1,
+    // Optional: maximum converter coverage boost retained by v2 content.
+    targetCoverageBoostScale: 0.1,
     sparkRendererOptions: {
       // Optional: the plugin already defaults this to 2.
       focalAdjustment: 2,
@@ -190,10 +193,10 @@ new GaussianSplatPlugin({
 });
 ```
 
-Supported keys are `premultipliedAlpha`, `encodeLinear`, `maxStdDev`,
-`minPixelRadius`, `maxPixelRadius`, `minAlpha`, `enable2DGS`,
-`preBlurAmount`, `blurAmount`, `clipXY`, `focalAdjustment`, `sortRadial`,
-`minSortIntervalMs`, `depthTest`, and `depthWrite`.
+Supported keys are `premultipliedAlpha`, `maxStdDev`, `minPixelRadius`,
+`maxPixelRadius`, `minAlpha`, `enable2DGS`, `preBlurAmount`, `blurAmount`,
+`clipXY`, `focalAdjustment`, `sortRadial`, `minSortIntervalMs`, `depthTest`,
+and `depthWrite`.
 
 Unspecified options use Spark defaults, except this plugin keeps
 `focalAdjustment: 2` as its own default.
@@ -339,10 +342,26 @@ intercepts tile payloads when all of the following are true:
 compression path at the moment. Raw, uncompressed Gaussian primitives and other
 compression schemes are rejected intentionally.
 
-Tiles may also include the draft `EXT_splat_opacity` extension to carry
-Spark-compatible per-splat opacity values alongside SPZ data. See
-[`EXT_splat_opacity.md`](EXT_splat_opacity.md) for the extension shape and
-accessor requirements.
+Tiles may also include the draft `EXT_splat_opacity` extension:
+
+- Legacy v1 supplies display-ready Spark opacity in a `FLOAT / SCALAR`
+  accessor.
+- Version 2 supplies binary16 source opacity, the pre-boost shape ratio, and
+  the converter's `opacity_anisotropic_v1` coverage strength. The plugin uses
+  this metadata to reduce the converter boost to at most the configured
+  `targetCoverageBoostScale` (default `0.1`), compensates opacity for the
+  retained two-axis area growth, then writes the result using Spark's native
+  high-opacity encoding. This processing applies only when the extension's
+  source opacity is greater than `1`; other splats retain their SPZ-decoded
+  scale and opacity.
+
+Converter-authored v2 data is interleaved in the existing GLB buffer. The plugin
+reads it without another request, payload copy, or deinterleave, then applies it
+in one pass before Spark creates its textures. Unknown metadata and malformed or
+unavailable accessors leave the complete decoded SPZ opacity and boosted scales
+unchanged. An invalid individual value leaves only that splat at the same SPZ
+fallback. See [`EXT_splat_opacity.md`](EXT_splat_opacity.md) for the complete
+binary layout, restoration formula, and fallback contract.
 
 ## API
 
@@ -356,9 +375,15 @@ Creates a tile parser plugin.
 - `scene: Scene`
 - `minRaycastOpacity?: number`
 - `sparkRendererOptions?: supported Spark renderer option subset`
+- `targetCoverageBoostScale?: number`
 
 `minRaycastOpacity` is forwarded to each Spark `SplatMesh` created by the
 plugin. It defaults to `0.1`.
+
+`targetCoverageBoostScale` is the maximum converter coverage boost retained
+when reading `EXT_splat_opacity` version 2. It defaults to `0.1`; use `0` to
+remove the recorded boost completely. A file whose recorded boost is lower
+than the configured target is left at that lower value rather than boosted.
 
 The same `scene` and `renderer` pair must stay in a strict 1:1:1 relationship
 with the shared Spark renderer manager used by the plugin. If multiple plugin

@@ -6,11 +6,13 @@ import {
 } from '@sparkjsdev/spark';
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import {
-  applySplatOpacityOverrideToArray,
-  getSplatOpacityAccessorIndex,
-  getSplatOpacityBufferIndex,
-  loadSplatOpacityAccessorSource,
-  type SplatOpacityAccessorSource,
+  DEFAULT_TARGET_COVERAGE_BOOST_SCALE,
+  applySplatOpacityExtensionToArrays,
+  collectSplatOpacityBufferIndices,
+  getSplatOpacityExtensionSource,
+  loadSplatOpacityExtensionData,
+  type SplatOpacityExtensionData,
+  type SplatOpacityExtensionSource,
 } from './GaussianSplatOpacityExtension';
 
 const _translation = new Vector3();
@@ -30,13 +32,13 @@ export type GlbData = {
 type GaussianPrimitiveSpzSource = {
   kind: 'spz';
   bufferViewIndex: number;
-  opacityAccessorIndex: number | null;
+  opacityExtensionSource: SplatOpacityExtensionSource | null;
 };
 
 type GaussianPrimitiveSpzData = {
   kind: 'spz';
   bytes: Uint8Array;
-  opacitySource: SplatOpacityAccessorSource | null;
+  opacityExtensionData: SplatOpacityExtensionData | null;
 };
 
 export type GaussianSplatPrimitiveSource = {
@@ -120,6 +122,7 @@ export async function resolveGltfBuffers(
   loadBuffer: BufferLoader,
   abortSignal?: AbortSignal,
   embeddedBuffer: Uint8Array | null = null,
+  optionalBufferIndices: readonly number[] = [],
 ) {
   const bufferDefinitions = json?.buffers ?? [];
   const buffers: (Uint8Array | undefined)[] = new Array(
@@ -131,33 +134,42 @@ export async function resolveGltfBuffers(
           (bufferDefinition: any) => !bufferDefinition?.uri,
         )
       : -1;
-  const uniqueIndices = [...new Set(requiredBufferIndices)];
+  const requiredIndexSet = new Set(requiredBufferIndices);
+  const uniqueIndices = [
+    ...new Set([...requiredBufferIndices, ...optionalBufferIndices]),
+  ];
 
   await Promise.all(
     uniqueIndices.map(async (index) => {
-      throwIfAborted(abortSignal);
+      try {
+        throwIfAborted(abortSignal);
 
-      const bufferDefinition = bufferDefinitions[index];
-      if (!bufferDefinition) {
-        throw new Error(`GaussianSplatPlugin: Missing buffer ${index}.`);
-      }
-
-      if (!bufferDefinition.uri) {
-        if (index === embeddedBufferIndex && embeddedBuffer) {
-          buffers[index] = embeddedBuffer;
-          return;
+        const bufferDefinition = bufferDefinitions[index];
+        if (!bufferDefinition) {
+          throw new Error(`GaussianSplatPlugin: Missing buffer ${index}.`);
         }
 
-        throw new Error(
-          `GaussianSplatPlugin: glTF buffer ${index} is missing a uri.`,
-        );
+        if (!bufferDefinition.uri) {
+          if (index === embeddedBufferIndex && embeddedBuffer) {
+            buffers[index] = embeddedBuffer;
+            return;
+          }
+
+          throw new Error(
+            `GaussianSplatPlugin: glTF buffer ${index} is missing a uri.`,
+          );
+        }
+
+        const resolvedUri = /^data:/i.test(bufferDefinition.uri)
+          ? bufferDefinition.uri
+          : new URL(bufferDefinition.uri, documentUri).toString();
+
+        buffers[index] = await loadBuffer(resolvedUri, abortSignal);
+      } catch (error) {
+        if (requiredIndexSet.has(index) || abortSignal?.aborted) {
+          throw error;
+        }
       }
-
-      const resolvedUri = /^data:/i.test(bufferDefinition.uri)
-        ? bufferDefinition.uri
-        : new URL(bufferDefinition.uri, documentUri).toString();
-
-      buffers[index] = await loadBuffer(resolvedUri, abortSignal);
     }),
   );
 
@@ -192,7 +204,7 @@ function getGaussianPrimitiveSource(
   return {
     kind: 'spz',
     bufferViewIndex: compressionExtension.bufferView,
-    opacityAccessorIndex: getSplatOpacityAccessorIndex(
+    opacityExtensionSource: getSplatOpacityExtensionSource(
       primitive,
       gaussianExtension,
     ),
@@ -204,7 +216,7 @@ function loadGaussianPrimitiveData(
   buffers: GaussianBufferCollection,
   source: GaussianPrimitiveSpzSource,
 ) {
-  const { bufferViewIndex, opacityAccessorIndex } = source;
+  const { bufferViewIndex, opacityExtensionSource } = source;
   const bufferView = getBufferView(json, bufferViewIndex, 'SPZ');
   const bufferIndex = bufferView.buffer ?? 0;
   const binaryChunk = buffers[bufferIndex];
@@ -224,10 +236,11 @@ function loadGaussianPrimitiveData(
   return {
     kind: 'spz' as const,
     bytes: binaryChunk.subarray(byteOffset, byteEnd),
-    opacitySource:
-      opacityAccessorIndex === null
-        ? null
-        : loadSplatOpacityAccessorSource(json, buffers, opacityAccessorIndex),
+    opacityExtensionData: loadSplatOpacityExtensionData(
+      json,
+      buffers,
+      opacityExtensionSource,
+    ),
   };
 }
 
@@ -235,7 +248,8 @@ export function collectGaussianBufferIndices(
   json: any,
   sources: readonly GaussianSplatPrimitiveSource[],
 ) {
-  const bufferIndices = new Set<number>();
+  const requiredBufferIndices = new Set<number>();
+  const optionalBufferIndices = new Set<number>();
 
   for (const source of sources) {
     const spzBufferView = getBufferView(
@@ -243,15 +257,27 @@ export function collectGaussianBufferIndices(
       source.data.bufferViewIndex,
       'SPZ',
     );
-    bufferIndices.add(spzBufferView.buffer ?? 0);
+    requiredBufferIndices.add(spzBufferView.buffer ?? 0);
 
-    const opacityAccessorIndex = source.data.opacityAccessorIndex;
-    if (opacityAccessorIndex !== null) {
-      bufferIndices.add(getSplatOpacityBufferIndex(json, opacityAccessorIndex));
+    for (const bufferIndex of collectSplatOpacityBufferIndices(
+      json,
+      source.data.opacityExtensionSource,
+    )) {
+      if (source.data.opacityExtensionSource?.version === 2) {
+        optionalBufferIndices.add(bufferIndex);
+      } else {
+        requiredBufferIndices.add(bufferIndex);
+      }
     }
   }
 
-  return [...bufferIndices];
+  for (const bufferIndex of requiredBufferIndices) {
+    optionalBufferIndices.delete(bufferIndex);
+  }
+  return {
+    required: [...requiredBufferIndices],
+    optional: [...optionalBufferIndices],
+  };
 }
 
 export function createAbortError() {
@@ -381,6 +407,7 @@ function disposeExtSplatsOptions(options: ExtSplatsOptions) {
 export async function buildGaussianMeshSource(
   descriptor: GaussianSplatPrimitiveDescriptor,
   abortSignal?: AbortSignal,
+  targetCoverageBoostScale = DEFAULT_TARGET_COVERAGE_BOOST_SCALE,
 ): Promise<GaussianSplatMeshSource> {
   throwIfAborted(abortSignal);
 
@@ -393,10 +420,11 @@ export async function buildGaussianMeshSource(
 
   const extArrays = extSplatsOptions.extArrays;
   if (extArrays) {
-    applySplatOpacityOverrideToArray(
-      extArrays[0],
+    applySplatOpacityExtensionToArrays(
+      extArrays,
       extSplatsOptions.numSplats ?? Math.floor(extArrays[0].length / 4),
-      descriptor.data.opacitySource,
+      descriptor.data.opacityExtensionData,
+      targetCoverageBoostScale,
     );
   }
 

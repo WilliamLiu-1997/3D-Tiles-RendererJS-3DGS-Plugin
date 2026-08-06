@@ -16,6 +16,7 @@ import {
   resolveGltfBuffers,
   type GaussianSplatPrimitiveDescriptor,
 } from './GaussianSplatLoader';
+import { DEFAULT_TARGET_COVERAGE_BOOST_SCALE } from './GaussianSplatOpacityExtension';
 import {
   type SharedSparkRendererManager,
   getSharedSparkRendererManager,
@@ -48,7 +49,6 @@ type TilesRendererWithHooks = TilesRenderer & {
 
 export const SPARK_RENDERER_OPTION_KEYS = [
   'premultipliedAlpha',
-  'encodeLinear',
   'maxStdDev',
   'minPixelRadius',
   'maxPixelRadius',
@@ -77,6 +77,7 @@ export type GaussianSplatPluginHost = {
   scene: Scene;
   minRaycastOpacity?: SplatMeshOptions['minRaycastOpacity'];
   sparkRendererOptions?: SupportedSparkRendererOptions;
+  targetCoverageBoostScale?: number;
 };
 
 type GaussianSplatSceneGroup = Group & {
@@ -233,9 +234,22 @@ export class GaussianSplatPlugin {
   tiles: TilesRenderer | null = null;
   #host: GaussianSplatPluginHost;
   #sparkManager: SharedSparkRendererManager | null = null;
+  #targetCoverageBoostScale: number;
 
   constructor(host: GaussianSplatPluginHost) {
+    const targetCoverageBoostScale =
+      host.targetCoverageBoostScale ?? DEFAULT_TARGET_COVERAGE_BOOST_SCALE;
+    if (
+      !Number.isFinite(targetCoverageBoostScale) ||
+      targetCoverageBoostScale < 0
+    ) {
+      throw new Error(
+        'GaussianSplatPlugin: targetCoverageBoostScale must be a finite non-negative number.',
+      );
+    }
+
     this.#host = host;
+    this.#targetCoverageBoostScale = targetCoverageBoostScale;
   }
 
   init(tiles: TilesRenderer) {
@@ -304,7 +318,11 @@ export class GaussianSplatPlugin {
     descriptor: GaussianSplatPrimitiveDescriptor,
     abortSignal: AbortSignal,
   ) {
-    const source = await buildGaussianMeshSource(descriptor, abortSignal);
+    const source = await buildGaussianMeshSource(
+      descriptor,
+      abortSignal,
+      this.#targetCoverageBoostScale,
+    );
     if (abortSignal.aborted) {
       source.extSplats.dispose();
       throw createAbortError();
@@ -397,13 +415,13 @@ export class GaussianSplatPlugin {
       return null;
     }
 
-    const requiredBufferIndices = collectGaussianBufferIndices(json, sources);
+    const bufferIndices = collectGaussianBufferIndices(json, sources);
 
     return (async () => {
       const buffers = await resolveGltfBuffers(
         json,
         uri,
-        requiredBufferIndices,
+        bufferIndices.required,
         (bufferUri, signal) =>
           fetchArrayBufferWithPlugins(
             tiles,
@@ -413,6 +431,7 @@ export class GaussianSplatPlugin {
           ),
         abortSignal,
         embeddedBuffer,
+        bufferIndices.optional,
       );
       if (abortSignal.aborted) {
         return null;
