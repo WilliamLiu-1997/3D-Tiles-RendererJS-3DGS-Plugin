@@ -737,6 +737,14 @@ class CameraController extends EventDispatcher {
     ) {
       return false;
     }
+    if (!this.#pointerTracker.getPreviousCenterPoint(_pointer2)) {
+      return false;
+    }
+    if (_pointer1.equals(_pointer2)) {
+      // Keep the active drag valid without recreating a tiny residual from
+      // ray/plane floating-point error. Existing inertia is still consumed.
+      return true;
+    }
     mouseToCoords(_pointer1.x, _pointer1.y, this.#domElement, _pointer1);
     _pointer1.add(this.#dragAnchorPointerOffset);
     if (this.#shouldDragModified()) {
