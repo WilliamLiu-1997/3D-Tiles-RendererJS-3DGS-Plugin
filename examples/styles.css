@@ -13,21 +13,18 @@ canvas {
   display: block;
 }
 
-#info {
+#splat-count {
   position: fixed;
   top: 12px;
-  left: 12px;
-  padding: 8px 12px;
-  background: rgba(0, 0, 0, 0.55);
-  border-radius: 4px;
+  left: 50%;
+  z-index: 1;
+  transform: translateX(-50%);
+  color: #fff;
   font-size: 13px;
   line-height: 1.4;
-  pointer-events: auto;
-  max-width: 360px;
-}
-
-#info a {
-  color: #7cc7ff;
+  text-shadow: 0 1px 3px #000;
+  pointer-events: none;
+  white-space: nowrap;
 }
 
 #landing {

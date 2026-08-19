@@ -7,6 +7,7 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three';
+import Stats from 'three/examples/jsm/libs/stats.module.js';
 import { TilesRenderer } from '3d-tiles-renderer';
 import {
   GeneratedSurfacePlugin,
@@ -15,7 +16,10 @@ import {
   UnloadTilesPlugin,
   XYZTilesOverlay,
 } from '3d-tiles-renderer/plugins';
-import { GaussianSplatPlugin } from '3d-tiles-rendererjs-3dgs-plugin';
+import {
+  GaussianSplatPlugin,
+  getSparkRendererForScene,
+} from '3d-tiles-rendererjs-3dgs-plugin';
 import { CameraController } from './cameraController';
 
 const SATELLITE_IMAGERY = {
@@ -53,8 +57,27 @@ export function runExample({ tilesets, initial = 0 }) {
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
+  const stats = new Stats();
+  document.body.appendChild(stats.dom);
+
   const scene = new Scene();
   scene.background = new Color(0xffffff);
+
+  const renderedSplatCount = document.querySelector(
+    '#rendered-splat-count',
+  );
+  const numberFormatter = new Intl.NumberFormat();
+  let displayedSplatCount = -1;
+
+  function updateRenderedSplatCount() {
+    if (!renderedSplatCount) return;
+
+    const nextCount = getSparkRendererForScene(scene)?.activeSplats ?? 0;
+    if (nextCount !== displayedSplatCount) {
+      renderedSplatCount.textContent = numberFormatter.format(nextCount);
+      displayedSplatCount = nextCount;
+    }
+  }
 
   const camera = new PerspectiveCamera(
     60,
@@ -174,6 +197,8 @@ export function runExample({ tilesets, initial = 0 }) {
     imageryTiles.update();
     tiles?.update();
     renderer.render(scene, camera);
+    updateRenderedSplatCount();
+    stats.update();
     requestAnimationFrame(frame);
   }
   frame();
