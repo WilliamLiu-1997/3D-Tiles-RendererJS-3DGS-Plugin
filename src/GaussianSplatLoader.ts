@@ -1,8 +1,6 @@
 import {
   ExtSplats,
   SplatFileType,
-  SplatLoader,
-  type ExtSplatsOptions,
 } from '@sparkjsdev/spark';
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import {
@@ -375,35 +373,6 @@ export function buildGaussianDescriptors(
   }));
 }
 
-async function decodeExtSplatsOptions(
-  bytes: Uint8Array,
-): Promise<ExtSplatsOptions> {
-  const captured: { options?: ExtSplatsOptions } = {};
-  // Intercept Spark's decoded extArrays before ExtSplats creates textures.
-  const capture = {
-    initialize(initOptions: ExtSplatsOptions) {
-      captured.options = initOptions;
-    },
-  } as unknown as ExtSplats;
-
-  const loader = new SplatLoader();
-  await loader.loadInternalAsync({
-    extSplats: capture,
-    fileBytes: bytes,
-    fileType: SplatFileType.SPZ,
-  });
-
-  if (!captured.options) {
-    throw new Error('GaussianSplatPlugin: Failed to decode SPZ data.');
-  }
-
-  return captured.options;
-}
-
-function disposeExtSplatsOptions(options: ExtSplatsOptions) {
-  options.lodSplats?.dispose();
-}
-
 export async function buildGaussianMeshSource(
   descriptor: GaussianSplatPrimitiveDescriptor,
   abortSignal?: AbortSignal,
@@ -411,25 +380,26 @@ export async function buildGaussianMeshSource(
 ): Promise<GaussianSplatMeshSource> {
   throwIfAborted(abortSignal);
 
-  const extSplatsOptions = await decodeExtSplatsOptions(descriptor.data.bytes);
+  const extSplats = new ExtSplats({
+    fileBytes: descriptor.data.bytes,
+    fileType: SplatFileType.SPZ,
+    construct(splats) {
+      throwIfAborted(abortSignal);
+      applySplatOpacityExtensionToArrays(
+        splats.extArrays,
+        splats.numSplats,
+        descriptor.data.opacityExtensionData,
+        targetCoverageBoostScale,
+      );
+    },
+  });
 
-  if (abortSignal?.aborted) {
-    disposeExtSplatsOptions(extSplatsOptions);
-    throw createAbortError();
+  try {
+    await extSplats.initialized;
+  } catch (error) {
+    extSplats.dispose();
+    throw error;
   }
-
-  const extArrays = extSplatsOptions.extArrays;
-  if (extArrays) {
-    applySplatOpacityExtensionToArrays(
-      extArrays,
-      extSplatsOptions.numSplats ?? Math.floor(extArrays[0].length / 4),
-      descriptor.data.opacityExtensionData,
-      targetCoverageBoostScale,
-    );
-  }
-
-  const extSplats = new ExtSplats(extSplatsOptions);
-  await extSplats.initialized;
 
   if (abortSignal?.aborted) {
     extSplats.dispose();
