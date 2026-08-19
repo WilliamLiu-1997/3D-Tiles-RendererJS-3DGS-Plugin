@@ -455,6 +455,7 @@ Controls:
 - Right-drag (or Shift + left-drag): pan
 - Scroll: zoom
 - GUI `Tileset` dropdown: swap the active tileset
+- GUI `Error target` slider: adjust level of detail on a logarithmic 4–64 scale
 - GUI `Move to tileset` button: frame the camera on the current tileset
 
 ```bash

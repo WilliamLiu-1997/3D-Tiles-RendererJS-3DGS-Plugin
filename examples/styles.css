@@ -27,6 +27,31 @@ canvas {
   white-space: nowrap;
 }
 
+.lil-gui .controller.error-target-controller .widget {
+  display: grid;
+  grid-template-areas: 'slider value';
+  grid-template-columns: minmax(0, 1fr) var(--slider-input-min-width);
+  column-gap: var(--spacing);
+}
+
+.lil-gui .controller.error-target-controller .slider {
+  grid-area: slider;
+  width: 100%;
+}
+
+.error-target-value {
+  grid-area: value;
+  align-self: start;
+  height: var(--widget-height);
+  padding: var(--widget-padding);
+  border-radius: var(--widget-border-radius);
+  background: var(--widget-color);
+  color: var(--number-color);
+  font-family: var(--font-family);
+  font-size: var(--input-font-size);
+  line-height: var(--widget-height);
+}
+
 #landing {
   display: flex;
   flex-direction: column;

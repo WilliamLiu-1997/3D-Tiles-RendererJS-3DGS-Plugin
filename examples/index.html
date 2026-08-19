@@ -26,9 +26,21 @@
       ];
 
       const viewer = runExample({ tilesets });
+      const errorTargetRange = {
+        min: 4,
+        middle: 16,
+        max: 64,
+      };
+      const errorTargetFromPosition = (position) =>
+        Math.round(
+          errorTargetRange.min *
+            (errorTargetRange.max / errorTargetRange.min) ** position,
+        );
+      viewer.setErrorTarget(errorTargetRange.middle);
 
       const state = {
         tileset: tilesets[0].name,
+        errorTargetPosition: 0.5,
         moveToTileset: () => viewer.moveToTileset(),
       };
       const nameToUrl = Object.fromEntries(
@@ -44,6 +56,21 @@
         )
         .name('Tileset')
         .onChange((name) => viewer.switchTileset(nameToUrl[name]));
+      const errorTargetOutput = document.createElement('output');
+      errorTargetOutput.className = 'error-target-value';
+      errorTargetOutput.textContent = String(errorTargetRange.middle);
+      const errorTargetController = gui
+        .add(state, 'errorTargetPosition', 0, 1)
+        .name('Error target')
+        .onChange((position) => {
+          const errorTarget = errorTargetFromPosition(position);
+          viewer.setErrorTarget(errorTarget);
+          errorTargetOutput.textContent = String(errorTarget);
+        });
+      errorTargetController.domElement.classList.add(
+        'error-target-controller',
+      );
+      errorTargetController.$input.replaceWith(errorTargetOutput);
       gui.add(state, 'moveToTileset').name('Move to tileset');
     </script>
   </body>

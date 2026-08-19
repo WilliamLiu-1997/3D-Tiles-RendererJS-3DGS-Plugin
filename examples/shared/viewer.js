@@ -153,12 +153,16 @@ export function runExample({ tilesets, initial = 0 }) {
   }
 
   function loadTileset(url) {
+    const errorTarget = tiles?.errorTarget;
     if (tiles) {
       scene.remove(tiles.group);
       tiles.dispose();
       tiles = null;
     }
     const next = new TilesRenderer(url);
+    if (errorTarget !== undefined) {
+      next.errorTarget = errorTarget;
+    }
     next.registerPlugin(new TilesFadePlugin());
     next.registerPlugin(new TileCompressionPlugin());
     next.registerPlugin(new UnloadTilesPlugin());
@@ -204,6 +208,14 @@ export function runExample({ tilesets, initial = 0 }) {
   frame();
 
   return {
+    getErrorTarget() {
+      return tiles?.errorTarget;
+    },
+    setErrorTarget(value) {
+      if (tiles) {
+        tiles.errorTarget = value;
+      }
+    },
     switchTileset(url) {
       loadTileset(url);
     },
