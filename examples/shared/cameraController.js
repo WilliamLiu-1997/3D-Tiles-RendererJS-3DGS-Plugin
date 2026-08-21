@@ -12,9 +12,101 @@ import {
   Vector2,
   Vector3,
 } from 'three';
-import { Ellipsoid } from '3d-tiles-renderer';
 
 const CAMERA_CENTER_MODE_DISTANCE_SQ = 3000000 ** 2;
+
+const _scaledOrigin = new Vector3();
+const _scaledDirection = new Vector3();
+const _scaledPoint = new Vector3();
+const _scaledRay = new Ray();
+const _zero = new Vector3();
+
+/**
+ * Axis-aligned ellipsoid centered at the origin.
+ */
+class Ellipsoid {
+  constructor(x = 1, y = 1, z = 1) {
+    this.radius = new Vector3(x, y, z);
+  }
+
+  intersectRay(ray, target) {
+    const { x, y, z } = this.radius;
+    if (x <= 0 || y <= 0 || z <= 0) {
+      return null;
+    }
+
+    _scaledOrigin.set(ray.origin.x / x, ray.origin.y / y, ray.origin.z / z);
+    _scaledDirection.set(
+      ray.direction.x / x,
+      ray.direction.y / y,
+      ray.direction.z / z,
+    );
+
+    // Intersect the ray with a unit sphere in ellipsoid-scaled space. Keep
+    // the original ray parameter so the resulting point is in world space.
+    const a = _scaledDirection.lengthSq();
+    if (a === 0) {
+      return null;
+    }
+    const halfB = _scaledOrigin.dot(_scaledDirection);
+    const c = _scaledOrigin.lengthSq() - 1;
+    const discriminant = halfB * halfB - a * c;
+    if (discriminant < 0) {
+      return null;
+    }
+
+    const sqrtDiscriminant = Math.sqrt(discriminant);
+    const near = (-halfB - sqrtDiscriminant) / a;
+    const far = (-halfB + sqrtDiscriminant) / a;
+    const distance = near >= 0 ? near : far >= 0 ? far : null;
+    return distance === null ? null : ray.at(distance, target);
+  }
+
+  getPositionToNormal(position, target) {
+    const { x, y, z } = this.radius;
+    target.set(
+      x > 0 ? position.x / (x * x) : 0,
+      y > 0 ? position.y / (y * y) : 0,
+      z > 0 ? position.z / (z * z) : 0,
+    );
+    return target.normalize();
+  }
+
+  closestPointToRayEstimate(ray, target) {
+    const intersection = this.intersectRay(ray, target);
+    if (intersection) {
+      return intersection;
+    }
+
+    const { x, y, z } = this.radius;
+    if (x <= 0 || y <= 0 || z <= 0) {
+      return target.set(0, 0, 0);
+    }
+
+    _scaledRay.origin.set(ray.origin.x / x, ray.origin.y / y, ray.origin.z / z);
+    _scaledRay.direction
+      .set(ray.direction.x / x, ray.direction.y / y, ray.direction.z / z)
+      .normalize();
+    _scaledRay.closestPointToPoint(_zero, _scaledPoint);
+
+    // A ray through the center has no unique radial estimate. Choose the
+    // surface point facing its origin, or the point opposite its direction
+    // when the ray also starts at the center.
+    if (_scaledPoint.lengthSq() === 0) {
+      _scaledPoint.copy(_scaledRay.origin);
+      if (_scaledPoint.lengthSq() === 0) {
+        _scaledPoint.copy(_scaledRay.direction).negate();
+      }
+    }
+
+    _scaledPoint.normalize();
+    return target.set(
+      _scaledPoint.x * x,
+      _scaledPoint.y * y,
+      _scaledPoint.z * z,
+    );
+  }
+}
 
 class PointerTracker {
   buttons;
@@ -392,6 +484,7 @@ class CameraController extends EventDispatcher {
   #dragAnchorPointerOffset;
   #dragPlaneNormal;
   #enabled;
+  #worldUp;
   #ellipsoid;
   #ellipsoidMaxRadius;
   #lastTime;
@@ -434,6 +527,9 @@ class CameraController extends EventDispatcher {
     this.#dragAnchorPointerOffset = new Vector2();
     this.#dragPlaneNormal = new Vector3();
     this.#enabled = false;
+    this.#worldUp = options.worldUp
+      ? new Vector3().copy(options.worldUp).normalize()
+      : null;
     this.#ellipsoid = null;
     this.#ellipsoidMaxRadius = 0;
     this.#lastTime = 0;
@@ -1089,7 +1185,7 @@ class CameraController extends EventDispatcher {
     this.#convergeCameraUp(keepCameraUpAnchor);
     const isCameraCenterMode = this.#isCameraCenterMode();
     const referenceUp = isCameraCenterMode
-      ? _worldZ
+      ? this.#getWorldUpDirection()
       : this.#getPositionUpDirection(this.#camera.position, _positionUp);
     // Modified globe drag already rotates around the Earth center. Preserving
     // an off-center anchor during a polar correction would translate the
@@ -1100,7 +1196,13 @@ class CameraController extends EventDispatcher {
     );
     this.#camera.updateMatrixWorld();
   }
+  #getWorldUpDirection() {
+    return this.#worldUp || _worldZ;
+  }
   #getPositionUpDirection(position, target) {
+    if (this.#worldUp) {
+      return target.copy(this.#worldUp);
+    }
     if (this.#ellipsoid) {
       this.#ellipsoid.getPositionToNormal(position, target);
       if (target.lengthSq() > THRESHOLD * THRESHOLD) {
@@ -1159,26 +1261,27 @@ class CameraController extends EventDispatcher {
     return verticalRange / this.#domElement.clientHeight;
   }
   #rotateNearAnchor(rotateVec) {
+    const worldUp = this.#getWorldUpDirection();
     const rotateAroundCamera = this.#rotatesAroundCamera();
     const rotationCenter = rotateAroundCamera
       ? this.#camera.position
       : this.#hit.point;
     const rotationDirection = rotateAroundCamera ? -1 : 1;
     this.#camera.getWorldDirection(_forward);
-    const cameraVerticalAngle = Math.PI - _forward.angleTo(_worldZ);
+    const cameraVerticalAngle = Math.PI - _forward.angleTo(worldUp);
     const verticalAngle = this.#clampVerticalDelta(
       rotateVec.y * rotationDirection,
       cameraVerticalAngle,
     );
     const horizontalAngle = rotateVec.x * rotationDirection;
-    _quaternion.setFromAxisAngle(_worldZ, horizontalAngle);
+    _quaternion.setFromAxisAngle(worldUp, horizontalAngle);
     this.#applyPivotRotation(_quaternion, rotateAroundCamera, rotationCenter);
     this.#camera.getWorldDirection(_forward);
     _up.copy(this.#camera.up).transformDirection(this.#camera.matrixWorld);
     _vec1.crossVectors(_forward, _up).normalize();
-    _right.copy(_vec1).projectOnPlane(_worldZ);
+    _right.copy(_vec1).projectOnPlane(worldUp);
     if (_right.lengthSq() <= THRESHOLD * THRESHOLD) {
-      _right.crossVectors(_forward, _worldZ);
+      _right.crossVectors(_forward, worldUp);
     }
     if (_right.lengthSq() <= THRESHOLD * THRESHOLD) {
       return 0;
@@ -1604,7 +1707,7 @@ class CameraController extends EventDispatcher {
     // Near the ellipsoid centre the surface normal is unstable, so fall back to
     // the world up direction.
     const referenceUp = this.#isCameraCenterMode()
-      ? _worldZ
+      ? this.#getWorldUpDirection()
       : this.#getPositionUpDirection(this.#camera.position, _positionUp);
     if (useExteriorZoomAlignment) {
       this.#alignCameraRollForExteriorZoom(referenceUp);
