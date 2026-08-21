@@ -1200,9 +1200,6 @@ class CameraController extends EventDispatcher {
     return this.#worldUp || _worldZ;
   }
   #getPositionUpDirection(position, target) {
-    if (this.#worldUp) {
-      return target.copy(this.#worldUp);
-    }
     if (this.#ellipsoid) {
       this.#ellipsoid.getPositionToNormal(position, target);
       if (target.lengthSq() > THRESHOLD * THRESHOLD) {
