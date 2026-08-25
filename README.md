@@ -14,7 +14,7 @@
 [`3d-tiles-renderer`](https://github.com/NASA-AMMOS/3DTilesRendererJS) by
 parsing glTF / GLB tile payloads that use `KHR_gaussian_splatting` with
 `KHR_gaussian_splatting_compression_spz_2`, then rendering them through
-[`@sparkjsdev/spark`](https://github.com/sparkjsdev/spark).
+[`gaussian-splat-lite`](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite).
 
 This plugin loads 3D Tiles content; it does not load raw `.ply` splat files
 directly. To generate 3D tiles from PLY-format 3D Gaussian Splatting
@@ -32,12 +32,13 @@ compatibility.
 - Supports `gltf` and `glb` tile payloads containing compressed Gaussian splats
 - Builds `SplatMesh` instances from SPZ-compressed primitive data
 - Supports legacy v1 and converter v2 `EXT_splat_opacity` payloads
-- Shares one Spark renderer per scene / WebGLRenderer pair
-- Accepts `sparkRendererOptions` to forward a supported subset of Spark renderer settings
-- Re-bases splat rendering around the active camera to reduce large-world
-  precision issues
+- Shares one Gaussian Splat Lite renderer per scene / WebGLRenderer pair
+- Accepts `gaussianSplatRendererOptions` to forward a supported subset of its `GaussianSplatRenderer` settings
+- Uses Gaussian Splat Lite's automatic camera-relative coordinate handling to
+  reduce large-world precision issues
 - Tracks extra GPU / buffer memory through `calculateBytesUsed`
-- Preserves opacity updates from tile fade transitions
+- Uses complementary screen-space coverage for `TilesFadePlugin` transitions
+  without scaling the source Gaussian opacity
 
 ## Requirements
 
@@ -45,12 +46,18 @@ The package peer dependency ranges are:
 
 - `three@>=0.185.0`
 - `3d-tiles-renderer@^0.5.0`
-- `@sparkjsdev/spark@^2.1.0`
+- `gaussian-splat-lite@^0.1.3`
+
+The browser must support fixed-width WebAssembly SIMD. Version 2 opacity
+retargeting uses an embedded WASM module with no JavaScript execution fallback;
+it does not fetch a separate `.wasm` asset at runtime. If the host page uses a
+Content Security Policy, its effective `script-src` must permit WebAssembly
+compilation, normally with `'wasm-unsafe-eval'`.
 
 ## Installation
 
 ```bash
-npm install 3d-tiles-rendererjs-3dgs-plugin three 3d-tiles-renderer @sparkjsdev/spark
+npm install 3d-tiles-rendererjs-3dgs-plugin three 3d-tiles-renderer gaussian-splat-lite
 ```
 
 ## Usage
@@ -78,11 +85,10 @@ tiles.registerPlugin(
   new GaussianSplatPlugin({
     renderer,
     scene,
-    minRaycastOpacity: 0.1,
+    minRaycastOpacity: 0.05,
     // Optional: maximum converter coverage boost retained by v2 content.
     targetCoverageBoostScale: 0.1,
-    sparkRendererOptions: {
-      // Optional: the plugin already defaults this to 2.
+    gaussianSplatRendererOptions: {
       focalAdjustment: 2,
     },
   }),
@@ -177,43 +183,42 @@ in addition to this 3D Tiles camera/session pattern. AR applications still need
 application-level reference-space alignment, anchors, real-world depth, and
 occlusion handling.
 
-## Spark Renderer Options
+## Gaussian Splat Lite Renderer Options
 
-`GaussianSplatPlugin` accepts an optional `sparkRendererOptions` object on the
+`GaussianSplatPlugin` accepts an optional `gaussianSplatRendererOptions` object on the
 constructor host:
 
 ```ts
 new GaussianSplatPlugin({
   renderer,
   scene,
-  sparkRendererOptions: {
+  gaussianSplatRendererOptions: {
     focalAdjustment: 2,
     blurAmount: 0.15,
   },
 });
 ```
 
-Supported keys are `premultipliedAlpha`, `maxStdDev`, `minPixelRadius`,
-`maxPixelRadius`, `minAlpha`, `enable2DGS`, `preBlurAmount`, `blurAmount`,
-`clipXY`, `focalAdjustment`, `sortRadial`, `minSortIntervalMs`, `depthTest`,
-and `depthWrite`.
+Supported keys are `premultipliedAlpha`, `autoUpdate`, `preUpdate`,
+`maxStdDev`, `minPixelRadius`, `maxPixelRadius`, `minAlpha`, `enable2DGS`,
+`preBlurAmount`, `blurAmount`, `clipXY`, `focalAdjustment`, `sortRadial`,
+`minSortIntervalMs`, `depthTest`, and `depthWrite`.
 
-Unspecified options use Spark defaults, except this plugin keeps
-`focalAdjustment: 2` as its own default.
+Unspecified options use Gaussian Splat Lite defaults.
 
-Because one Spark renderer is shared per `scene` / `WebGLRenderer` pair,
-explicit `sparkRendererOptions` from later `GaussianSplatPlugin` instances are
+Because one Gaussian Splat Lite renderer is shared per `scene` / `WebGLRenderer` pair,
+explicit `gaussianSplatRendererOptions` from later `GaussianSplatPlugin` instances are
 merged into that existing shared renderer. Omitted keys do not reset previously
 applied values, and changed explicit values log a warning so shared-state
 updates remain visible.
 
-To update options on an existing shared Spark renderer at runtime, call
-`updateSharedSparkRendererOptions` with the scene and options:
+To update options on an existing shared Gaussian Splat Lite renderer at runtime, call
+`updateSharedGaussianSplatRendererOptions` with the scene and options:
 
 ```ts
-import { updateSharedSparkRendererOptions } from '3d-tiles-rendererjs-3dgs-plugin';
+import { updateSharedGaussianSplatRendererOptions } from '3d-tiles-rendererjs-3dgs-plugin';
 
-updateSharedSparkRendererOptions(scene, {
+updateSharedGaussianSplatRendererOptions(scene, {
   blurAmount: 0.2,
 });
 ```
@@ -225,7 +230,7 @@ Omitted keys keep their current values.
 When compositing Gaussian splats with an ellipsoid globe or imagery tiles, keep
 the globe in the opaque render path whenever possible.
 
-Spark splats render as transparent, depth-tested geometry. If the globe is also
+Gaussian Splat Lite splats render as transparent, depth-tested geometry. If the globe is also
 rendered as transparent tile meshes, then both systems end up in Three.js'
 transparent queue, where sorting is primarily object-level instead of
 per-pixel. At grazing / horizon views this can make the globe appear to occlude
@@ -344,24 +349,27 @@ compression schemes are rejected intentionally.
 
 Tiles may also include the draft `EXT_splat_opacity` extension:
 
-- Legacy v1 supplies display-ready Spark opacity in a `FLOAT / SCALAR`
+- Legacy v1 supplies display-ready Gaussian Splat Lite opacity in a `FLOAT / SCALAR`
   accessor.
 - Version 2 supplies binary16 source opacity, the pre-boost shape ratio, and
   the converter's `opacity_anisotropic_v1` coverage strength. The plugin uses
   this metadata to reduce the converter boost to at most the configured
   `targetCoverageBoostScale` (default `0.1`), compensates opacity for the
-  retained two-axis area growth, then writes the result using Spark's native
+  retained two-axis area growth, then writes the result using Gaussian Splat Lite's native
   high-opacity encoding. This processing applies only when the extension's
   source opacity is greater than `1`; other splats retain their SPZ-decoded
   scale and opacity.
 
 Converter-authored v2 data is interleaved in the existing GLB buffer. The plugin
 reads it without another request, payload copy, or deinterleave, then applies it
-in one pass before Spark creates its textures. Unknown metadata and malformed or
+in one pass before Gaussian Splat Lite creates its textures. Unknown metadata and malformed or
 unavailable accessors leave the complete decoded SPZ opacity and boosted scales
 unchanged. An invalid individual value leaves only that splat at the same SPZ
 fallback. See [`EXT_splat_opacity.md`](EXT_splat_opacity.md) for the complete
 binary layout, restoration formula, and fallback contract.
+
+Opacity retargeting runs directly on the decoded splat arrays in one in-place
+pass without copying them.
 
 ## API
 
@@ -374,11 +382,11 @@ Creates a tile parser plugin.
 - `renderer: WebGLRenderer`
 - `scene: Scene`
 - `minRaycastOpacity?: number`
-- `sparkRendererOptions?: supported Spark renderer option subset`
+- `gaussianSplatRendererOptions?: supported Gaussian Splat Lite renderer option subset`
 - `targetCoverageBoostScale?: number`
 
-`minRaycastOpacity` is forwarded to each Spark `SplatMesh` created by the
-plugin. It defaults to `0.1`.
+`minRaycastOpacity` is forwarded to each Gaussian Splat Lite `SplatMesh` created by the
+plugin. It defaults to `0.05`.
 
 `targetCoverageBoostScale` is the maximum converter coverage boost retained
 when reading `EXT_splat_opacity` version 2. It defaults to `0.1`; use `0` to
@@ -386,27 +394,27 @@ remove the recorded boost completely. A file whose recorded boost is lower
 than the configured target is left at that lower value rather than boosted.
 
 The same `scene` and `renderer` pair must stay in a strict 1:1:1 relationship
-with the shared Spark renderer manager used by the plugin. If multiple plugin
-instances reuse that pair, they also reuse the same Spark renderer and merge
-their explicit `sparkRendererOptions` into it.
+with the shared Gaussian Splat Lite renderer manager used by the plugin. If multiple plugin
+instances reuse that pair, they also reuse the same Gaussian Splat Lite renderer and merge
+their explicit `gaussianSplatRendererOptions` into it.
 
 ### `isGaussianSplat(object)`
 
-Type guard for Spark `SplatMesh` nodes created by this plugin.
+Type guard for Gaussian Splat Lite `SplatMesh` nodes created by this plugin.
 
 ### `isGaussianSplatScene(object)`
 
 Type guard for the `Group` wrapper that owns one parsed Gaussian tile scene.
 
-### `getSparkRendererForScene(scene)`
+### `getGaussianSplatRendererForScene(scene)`
 
-Returns the shared Spark renderer currently attached to a scene, or `null` if
+Returns the shared Gaussian Splat Lite renderer currently attached to a scene, or `null` if
 the plugin has not initialized one for that scene or it has already been
 disposed. The returned renderer is owned by the plugin.
 
-### `updateSharedSparkRendererOptions(scene, options)`
+### `updateSharedGaussianSplatRendererOptions(scene, options)`
 
-Applies explicit supported `sparkRendererOptions` to the existing shared Spark
+Applies explicit supported `gaussianSplatRendererOptions` to the existing shared Gaussian Splat Lite
 renderer for `scene`. This is intended for runtime UI controls or other
 configuration changes after the plugin has initialized. It does nothing if no
 shared renderer exists for the scene.
@@ -416,20 +424,29 @@ shared renderer exists for the scene.
 ```ts
 import {
   GaussianSplatPlugin,
-  getSparkRendererForScene,
+  getGaussianSplatRendererForScene,
   isGaussianSplat,
   isGaussianSplatScene,
-  updateSharedSparkRendererOptions,
+  updateSharedGaussianSplatRendererOptions,
 } from '3d-tiles-rendererjs-3dgs-plugin';
 ```
 
 ## Development
 
+Development and release checks require Node.js 20.9 or newer and a Rust
+toolchain.
+
 ```bash
 npm install
+npm run build:wasm
 npm run check
 npm run build
 ```
+
+Building the embedded opacity module requires a Rust toolchain. The build script
+installs the `wasm32-unknown-unknown` target through `rustup` when needed. The
+generated `src/opacity_retarget.wasm` is a local build input and is not committed
+or published as a separate package file.
 
 ## Examples
 

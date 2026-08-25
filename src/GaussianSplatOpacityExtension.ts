@@ -1,4 +1,5 @@
-import { fromHalf, toHalf } from '@sparkjsdev/spark';
+import { toHalf } from 'gaussian-splat-lite';
+import { applyVersion2OpacityRetargetWasm } from './GaussianSplatOpacityWasm';
 
 const SPLAT_OPACITY_EXTENSION_NAME = 'EXT_splat_opacity';
 const SPLAT_OPACITY_VERSION_2 = 2;
@@ -8,12 +9,10 @@ const GL_UNSIGNED_SHORT = 5123;
 const GL_FLOAT = 5126;
 const UNSIGNED_SHORT_BYTE_SIZE = 2;
 const FLOAT_BYTE_SIZE = 4;
-const UINT16_MAX = 65535;
-const FLOAT16_MAX = 65504;
 const MAX_COVERAGE_BOOST_OPACITY = 1000;
+const MAX_WASM_COVERAGE_BOOST_SCALE =
+  3.4028234663852886e38 / (Math.sqrt(MAX_COVERAGE_BOOST_OPACITY) - 1);
 export const DEFAULT_TARGET_COVERAGE_BOOST_SCALE = 0.1;
-const MIN_SPARK_LOD_OPACITY = 0.000001;
-const MAX_SPARK_LOD_OPACITY = 1000;
 
 type GaussianBufferCollection = ReadonlyArray<Uint8Array | undefined>;
 
@@ -439,202 +438,85 @@ function readFloat32(source: ScalarAccessorSource, index: number) {
     : source.dataView.getFloat32(index * source.byteStride, true);
 }
 
-function readUint16(source: ScalarAccessorSource, index: number) {
-  return source.dataView.getUint16(index * source.byteStride, true);
-}
-
-function writeSparkOpacity(
-  extA: Uint32Array,
+function writeGaussianSplatDisplayOpacity(
+  splatA: Uint32Array,
   wordIndex: number,
   opacity: number,
 ) {
-  extA[wordIndex] = (extA[wordIndex] & 0xffff0000) | toHalf(opacity);
+  const alpha = Math.min(1, opacity);
+  const shapeAmount = Math.min(1, Math.max(0, opacity - 1));
+  splatA[wordIndex] = toHalf(alpha) | (toHalf(shapeAmount) << 16);
 }
 
 function applyVersion1Opacity(
-  extA: Uint32Array,
+  splatA: Uint32Array,
   numSplats: number,
   opacitySource: ScalarAccessorSource,
 ) {
   const count = Math.min(
     opacitySource.count,
     numSplats,
-    Math.floor(extA.length / 4),
+    Math.floor(splatA.length / 4),
   );
-  let applied = false;
-  for (let i = 0, wordIndex = 3; i < count; i++, wordIndex += 4) {
-    const opacity = readFloat32(opacitySource, i);
-    if (!(opacity >= 0 && opacity < Infinity)) {
+  for (let index = 0, wordIndex = 3; index < count; index++, wordIndex += 4) {
+    const opacity = readFloat32(opacitySource, index);
+    if (!Number.isFinite(opacity) || opacity < 0) {
       continue;
     }
 
-    writeSparkOpacity(extA, wordIndex, opacity);
-    applied = true;
+    writeGaussianSplatDisplayOpacity(splatA, wordIndex, opacity);
   }
-  return applied;
 }
 
-function encodeSparkDisplayOpacity(opacity: number) {
-  if (opacity <= 1) {
-    return opacity;
-  }
-  const clamped = Math.min(
-    MAX_SPARK_LOD_OPACITY,
-    Math.max(MIN_SPARK_LOD_OPACITY, opacity),
-  );
-  const lodOpacity = Math.sqrt(1 + Math.E * Math.log(clamped));
-  return Math.min(2, Math.max(1, 1 + (lodOpacity - 1) / 4));
-}
-
-function getLargestScaleAxis(x: number, y: number, z: number) {
-  if (x >= y && x >= z) {
-    return 0;
-  }
-  return y >= z ? 1 : 2;
-}
-
-function getVersion2RetargetValues(
-  sourceOpacity: number,
-  ratio: number,
-  fileCoverageBoostScale: number,
-  targetCoverageBoostScale: number,
-) {
-  const opacityFactor =
-    Math.sqrt(Math.min(sourceOpacity, MAX_COVERAGE_BOOST_OPACITY)) - 1;
-  const fileRestFactor = 1 + fileCoverageBoostScale * opacityFactor;
-  const targetRestFactor = 1 + targetCoverageBoostScale * opacityFactor;
-  const ratioFactor = ratio / (1 - ratio + ratio * ratio);
-  const fileTopFactor = 1 + (fileRestFactor - 1) * ratioFactor;
-  const targetTopFactor = 1 + (targetRestFactor - 1) * ratioFactor;
-  return {
-    displayOpacity: encodeSparkDisplayOpacity(
-      sourceOpacity / (targetRestFactor * targetRestFactor),
-    ),
-    restLogDelta: Math.log(targetRestFactor / fileRestFactor),
-    topLogDelta: Math.log(targetTopFactor / fileTopFactor),
-  };
-}
-
-function applyVersion2OpacityAndRetargetCoverageBoost(
-  extArrays: [Uint32Array, Uint32Array],
-  numSplats: number,
-  data: Extract<SplatOpacityExtensionData, { version: 2 }>,
-  targetCoverageBoostScale: number,
-) {
-  const [extA, extB] = extArrays;
-  const count = Math.min(
-    data.sourceOpacitySource.count,
-    data.coverageBoostRatioSource.count,
-    numSplats,
-    Math.floor(extA.length / 4),
-    Math.floor(extB.length / 4),
-  );
-  if (count <= 0) {
-    return false;
-  }
-
-  const retainedCoverageBoostScale = Math.min(
-    data.coverageBoostScale,
-    targetCoverageBoostScale,
-  );
-  // Accessor structure and bounds were validated while loading. Calculate and
-  // validate a complete splat update before writing it, so invalid values keep
-  // the SPZ fallback without requiring a separate full-payload validation pass.
-  let applied = false;
-  for (let i = 0, base = 0; i < count; i++, base += 4) {
-    const sourceOpacity = fromHalf(readUint16(data.sourceOpacitySource, i));
-    if (
-      !(sourceOpacity >= 0 && sourceOpacity < Infinity) ||
-      sourceOpacity <= 1
-    ) {
-      continue;
-    }
-
-    const ratio =
-      readUint16(data.coverageBoostRatioSource, i) / UINT16_MAX;
-    const values = getVersion2RetargetValues(
-      sourceOpacity,
-      ratio,
-      data.coverageBoostScale,
-      retainedCoverageBoostScale,
-    );
-    if (
-      !Number.isFinite(values.displayOpacity) ||
-      !Number.isFinite(values.restLogDelta) ||
-      !Number.isFinite(values.topLogDelta)
-    ) {
-      continue;
-    }
-
-    if (values.restLogDelta !== 0 || values.topLogDelta !== 0) {
-      const scaleLogX = fromHalf(extB[base + 1] >>> 16);
-      const scaleLogY = fromHalf(extB[base + 2] & UINT16_MAX);
-      const scaleLogZ = fromHalf(extB[base + 2] >>> 16);
-      const largestAxis = getLargestScaleAxis(
-        scaleLogX,
-        scaleLogY,
-        scaleLogZ,
-      );
-      const updatedScaleLogX =
-        scaleLogX +
-        (largestAxis === 0 ? values.topLogDelta : values.restLogDelta);
-      const updatedScaleLogY =
-        scaleLogY +
-        (largestAxis === 1 ? values.topLogDelta : values.restLogDelta);
-      const updatedScaleLogZ =
-        scaleLogZ +
-        (largestAxis === 2 ? values.topLogDelta : values.restLogDelta);
-      if (
-        !Number.isFinite(updatedScaleLogX) ||
-        !Number.isFinite(updatedScaleLogY) ||
-        !Number.isFinite(updatedScaleLogZ) ||
-        Math.abs(updatedScaleLogX) > FLOAT16_MAX ||
-        Math.abs(updatedScaleLogY) > FLOAT16_MAX ||
-        Math.abs(updatedScaleLogZ) > FLOAT16_MAX
-      ) {
-        continue;
-      }
-
-      const scaleX = toHalf(updatedScaleLogX);
-      const scaleY = toHalf(updatedScaleLogY);
-      const scaleZ = toHalf(updatedScaleLogZ);
-      extB[base + 1] =
-        (extB[base + 1] & 0x0000ffff) | (scaleX << 16);
-      extB[base + 2] = scaleY | (scaleZ << 16);
-    }
-
-    writeSparkOpacity(extA, base + 3, values.displayOpacity);
-    applied = true;
-  }
-
-  return applied;
-}
-
-export function applySplatOpacityExtensionToArrays(
-  extArrays: [Uint32Array, Uint32Array],
+export async function applySplatOpacityExtensionToArraysAsync(
+  splatArrays: [Uint32Array, Uint32Array],
   numSplats: number,
   data: SplatOpacityExtensionData | null,
   targetCoverageBoostScale = DEFAULT_TARGET_COVERAGE_BOOST_SCALE,
 ) {
   if (!data) {
-    return false;
+    return;
   }
 
   if (data.version === 1) {
-    return applyVersion1Opacity(extArrays[0], numSplats, data.opacitySource);
+    applyVersion1Opacity(splatArrays[0], numSplats, data.opacitySource);
+    return;
   }
 
   if (
     !Number.isFinite(targetCoverageBoostScale) ||
     targetCoverageBoostScale < 0
   ) {
-    return false;
+    return;
   }
 
-  return applyVersion2OpacityAndRetargetCoverageBoost(
-    extArrays,
+  const [splatA, splatB] = splatArrays;
+  const count = Math.min(
+    data.sourceOpacitySource.count,
+    data.coverageBoostRatioSource.count,
     numSplats,
-    data,
+    Math.floor(splatA.length / 4),
+    Math.floor(splatB.length / 4),
+  );
+  const retainedCoverageBoostScale = Math.min(
+    data.coverageBoostScale,
     targetCoverageBoostScale,
+  );
+  if (count === 0) {
+    return;
+  }
+  if (data.coverageBoostScale > MAX_WASM_COVERAGE_BOOST_SCALE) {
+    throw new Error(
+      'GaussianSplatPlugin: Coverage boost scale exceeds the opacity WASM range.',
+    );
+  }
+
+  await applyVersion2OpacityRetargetWasm(
+    splatArrays,
+    count,
+    data.sourceOpacitySource,
+    data.coverageBoostRatioSource,
+    data.coverageBoostScale,
+    retainedCoverageBoostScale,
   );
 }

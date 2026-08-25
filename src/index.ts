@@ -5,6 +5,6 @@ export {
 } from './GaussianSplatPlugin';
 
 export {
-  getSparkRendererForScene,
-  updateSharedSparkRendererOptions,
-} from './SharedSparkRendererManager';
+  getGaussianSplatRendererForScene,
+  updateSharedGaussianSplatRendererOptions,
+} from './SharedGaussianSplatRendererManager';

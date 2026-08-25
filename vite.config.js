@@ -6,7 +6,7 @@ const examplesDir = path.resolve('./examples');
 const htmlInputs = Object.fromEntries(
   fs
     .readdirSync(examplesDir)
-    .filter((name) => name.endsWith('.html'))
+    .filter((name) => !name.startsWith('.') && name.endsWith('.html'))
     .map((name) => [name.replace(/\.html$/, ''), path.resolve(examplesDir, name)]),
 );
 
@@ -15,6 +15,7 @@ export default defineConfig({
   base: './',
   publicDir: path.resolve('./data'),
   resolve: {
+    dedupe: ['three'],
     alias: {
       '3d-tiles-rendererjs-3dgs-plugin': path.resolve('./src/index.ts'),
     },

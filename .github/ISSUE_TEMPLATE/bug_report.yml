@@ -35,10 +35,10 @@ body:
       required: true
 
   - type: input
-    id: spark_version
+    id: gaussian_splat_lite_version
     attributes:
-      label: Spark version
-      placeholder: 2.0.0
+      label: Gaussian Splat Lite version
+      placeholder: 0.1.0
     validations:
       required: true
 

@@ -11,11 +11,21 @@ permissions:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    name: Node ${{ matrix.node-version }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        node-version: [18, 20, 22]
+        include:
+          - os: ubuntu-latest
+            node-version: 20
+          - os: ubuntu-latest
+            node-version: 22
+          - os: ubuntu-latest
+            node-version: 24
+          - os: windows-latest
+            node-version: 22
 
     steps:
       - name: Checkout
@@ -30,16 +40,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Type check
-        run: npm run check
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
 
-      - name: Build package
-        run: npm run build
-
-      - name: Build examples
-        if: ${{ matrix.node-version == 22 }}
-        run: npm run build-examples
-
-      - name: Verify package contents
-        if: ${{ matrix.node-version == 22 }}
-        run: npm pack --dry-run
+      - name: Run release checks
+        run: npm run release:check

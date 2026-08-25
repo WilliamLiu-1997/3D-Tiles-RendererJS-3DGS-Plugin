@@ -266,32 +266,26 @@ renderer-specific high-opacity encoding is:
 This compensation is applied only to source opacity above `1`; other splats
 retain the SPZ-decoded opacity.
 
-### Spark high-opacity profile
+### Gaussian Splat Lite high-opacity profile
 
-Spark-compatible readers encode `alphaDisplay` as follows:
-
-```math
-E(x)=x \quad \text{for } x\le1,
-```
-
-and, for `x > 1`:
+Gaussian Splat Lite `0.1.2` and later stores alpha and wider-kernel shape amount in the
+low and high binary16 lanes of the first record's final word. For
+`alphaDisplay <= 1`, the reader writes `alphaDisplay` to the low lane and zero
+to the high lane. For `alphaDisplay > 1`, it writes `1` to the low lane and:
 
 ```math
-E(x)
+S(x)
 =
-\operatorname{clamp}\left(
-1+\frac{\sqrt{1+e\ln(\operatorname{clamp}(x,10^{-6},1000))}-1}{4},
-1,
-2
-\right).
+\frac{\sqrt{1+e\ln(\operatorname{clamp}(x,0,1000))}-1}{4}
 ```
 
-The reader writes `E(alphaDisplay)` to Spark's half-float opacity field. Raw
-source-opacity bits must not be copied directly into that field because Spark
-expects this `[1, 2]` encoding for opacity above `1`.
+to the high lane. This preserves standard render-time alpha independently from
+the nonlinear wider-kernel shape amount. Raw source-opacity bits must not be
+copied directly into either lane.
 
 Other renderers may consume `alphaDisplay` according to their own opacity
-representation; the `E` mapping is specific to the Spark profile.
+representation; the two-lane `S` mapping is specific to the Gaussian Splat Lite
+profile.
 
 ## Invalid, Unknown, or Unavailable Version 2 Data
 
@@ -325,7 +319,7 @@ type ExtSplatOpacityV1 = {
 };
 ```
 
-The referenced accessor contains display-ready Spark opacity and uses:
+The referenced accessor contains display-ready encoded opacity and uses:
 
 - `componentType: 5126` (`FLOAT`)
 - `type: "SCALAR"`
@@ -333,9 +327,11 @@ The referenced accessor contains display-ready Spark opacity and uses:
 - one finite, non-negative value per decoded splat
 
 A version 1 reader overwrites opacity after SPZ decode and does not retarget
-scales. Version 2 deliberately uses `sourceOpacityAccessor` rather than reusing
-`opacityAccessor`, allowing a legacy reader to ignore v2 instead of interpreting
-unsigned-short source data as display-ready float opacity.
+scales. A Gaussian Splat Lite `0.1.3` reader converts a value above `1` by
+writing alpha `1` to the low binary16 lane and `opacity - 1` to the high
+shape-amount lane. Version 2 deliberately uses `sourceOpacityAccessor` rather
+than reusing `opacityAccessor`, allowing a legacy reader to ignore v2 instead
+of interpreting unsigned-short source data as display-ready float opacity.
 
 ## Producer Checklist
 

@@ -7,6 +7,53 @@ Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Replaced the `@sparkjsdev/spark@2.1.0` rendering backend with
+  `gaussian-splat-lite@0.1.3` and raised the Three.js peer version to
+  `>=0.185.1`.
+- Renamed the public renderer integration API from Spark terminology to
+  `gaussianSplatRendererOptions`, `getGaussianSplatRendererForScene`, and
+  `updateSharedGaussianSplatRendererOptions`.
+- Replaced the custom camera-relative Spark renderer with Gaussian Splat Lite's
+  built-in camera-relative handling and shared `GaussianSplatRenderer`.
+- Updated splat loading and byte accounting to use `Splats`, `splatArrays`, and
+  the `SplatMesh.splats` option, and added `autoUpdate` and `preUpdate` to the
+  supported renderer options.
+- Updated `EXT_splat_opacity` writes for Gaussian Splat Lite `0.1.3`, storing
+  standard alpha and the nonlinear high-opacity kernel shape amount in separate
+  binary16 lanes.
+- Applied `EXT_splat_opacity` retargeting directly to Gaussian Splat Lite's
+  decoded splat arrays in one in-place pass.
+- Added a plugin-local, lookup-table-free WASM SIMD path for version 2 opacity
+  and scale retargeting. The module is embedded in the JavaScript bundle,
+  eagerly instantiated without a runtime fetch, and version 2 no longer has an
+  exact JavaScript execution fallback. Its `f32` logarithm polynomial can cross
+  a binary16 rounding boundary relative to the previous exact JavaScript result.
+- Changed `TilesFadePlugin` compatibility to observe its independent `fadeIn`
+  and `fadeOut` values and map their combined coverage to Gaussian Splat Lite
+  mesh opacity while leaving decoded source splat data unchanged.
+- Changed the default `minRaycastOpacity` from `0.1` to the Gaussian Splat Lite
+  default of `0.05`.
+- Simplified the shared renderer lifecycle by removing the unused dispose timer
+  handle and redundant renderer `raycast` override.
+- Removed redundant `UnloadTilesPlugin` registration and `unloadPercent`
+  configuration from the examples.
+- Updated documentation and GitHub issue templates for the Gaussian Splat Lite
+  backend.
+- Aligned package verification and Trusted Publishing with Gaussian Splat Lite:
+  generated opacity WASM is ignored and rebuilt before bundling, clean installs
+  use the published renderer package instead of a sibling checkout, CI covers
+  supported Linux and Windows Node versions, and releases run dependency,
+  Rust, tarball, and `publint` checks. The npm package contains only the
+  JavaScript-embedded WASM module.
+
+### Fixed
+
+- Ignored macOS AppleDouble HTML metadata files when collecting Vite example
+  entry points.
+- Deduplicated Three.js in the Vite example build.
+
 ## [0.1.16] - 2026-08-06
 
 ### Added

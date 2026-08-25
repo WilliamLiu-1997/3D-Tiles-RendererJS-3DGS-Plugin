@@ -1,15 +1,15 @@
 import {
   SplatMesh,
-  type SparkRendererOptions,
+  type GaussianSplatRendererOptions,
   type SplatMeshOptions,
-} from '@sparkjsdev/spark';
+} from 'gaussian-splat-lite';
 import { Group, Matrix4, Object3D, WebGLRenderer, type Scene } from 'three';
 import type { Tile, TilesRenderer } from '3d-tiles-renderer';
 import {
   buildGaussianPrimitiveSources,
   collectGaussianBufferIndices,
   buildGaussianDescriptors,
-  buildGaussianMeshSource,
+  buildGaussianSplats,
   createAbortError,
   parseGlb,
   parseGltfJson,
@@ -17,14 +17,13 @@ import {
   type GaussianSplatPrimitiveDescriptor,
 } from './GaussianSplatLoader';
 import { DEFAULT_TARGET_COVERAGE_BOOST_SCALE } from './GaussianSplatOpacityExtension';
+import { preloadOpacityRetargetWasm } from './GaussianSplatOpacityWasm';
 import {
-  type SharedSparkRendererManager,
-  getSharedSparkRendererManager,
-} from './SharedSparkRendererManager';
+  type SharedGaussianSplatRendererManager,
+  getSharedGaussianSplatRendererManager,
+} from './SharedGaussianSplatRendererManager';
 import {
   createGaussianFadeMaterial,
-  createGaussianFadeModifier,
-  createGaussianFadeState,
   type GaussianSplatFadeMaterial,
 } from './GaussianSplatFade';
 
@@ -47,8 +46,10 @@ type TilesRendererWithHooks = TilesRenderer & {
   ): T | null;
 };
 
-export const SPARK_RENDERER_OPTION_KEYS = [
+export const GAUSSIAN_SPLAT_RENDERER_OPTION_KEYS = [
   'premultipliedAlpha',
+  'autoUpdate',
+  'preUpdate',
   'maxStdDev',
   'minPixelRadius',
   'maxPixelRadius',
@@ -64,19 +65,19 @@ export const SPARK_RENDERER_OPTION_KEYS = [
   'depthWrite',
 ] as const;
 
-export type SupportedSparkRendererOptionKey =
-  (typeof SPARK_RENDERER_OPTION_KEYS)[number];
+export type SupportedGaussianSplatRendererOptionKey =
+  (typeof GAUSSIAN_SPLAT_RENDERER_OPTION_KEYS)[number];
 
-export type SupportedSparkRendererOptions = Pick<
-  SparkRendererOptions,
-  SupportedSparkRendererOptionKey
+export type SupportedGaussianSplatRendererOptions = Pick<
+  GaussianSplatRendererOptions,
+  SupportedGaussianSplatRendererOptionKey
 >;
 
 export type GaussianSplatPluginHost = {
   renderer: WebGLRenderer;
   scene: Scene;
   minRaycastOpacity?: SplatMeshOptions['minRaycastOpacity'];
-  sparkRendererOptions?: SupportedSparkRendererOptions;
+  gaussianSplatRendererOptions?: SupportedGaussianSplatRendererOptions;
   targetCoverageBoostScale?: number;
 };
 
@@ -92,8 +93,7 @@ type GaussianSplatMesh = SplatMesh & {
   material: GaussianSplatFadeMaterial;
 };
 
-const MAX_GAUSSIAN_MESH_INIT_CONCURRENCY = 4;
-const DEFAULT_MIN_RAYCAST_OPACITY = 0.1;
+const DEFAULT_MIN_RAYCAST_OPACITY = 0.05;
 
 const _sceneMatrix = new Matrix4();
 
@@ -174,48 +174,6 @@ async function fetchArrayBufferWithPlugins(
   );
 }
 
-async function allSettledWithConcurrencyLimit<T, R>(
-  values: readonly T[],
-  limit: number,
-  callback: (value: T, index: number) => Promise<R>,
-) {
-  if (values.length === 0) {
-    return [] as PromiseSettledResult<R>[];
-  }
-
-  const settled = new Array<PromiseSettledResult<R>>(values.length);
-  let nextIndex = 0;
-
-  const worker = async () => {
-    while (true) {
-      const currentIndex = nextIndex;
-      if (currentIndex >= values.length) {
-        return;
-      }
-
-      nextIndex++;
-
-      try {
-        const value = await callback(values[currentIndex], currentIndex);
-        settled[currentIndex] = {
-          status: 'fulfilled',
-          value,
-        };
-      } catch (reason) {
-        settled[currentIndex] = {
-          status: 'rejected',
-          reason,
-        };
-      }
-    }
-  };
-
-  const workerCount = Math.min(limit, values.length);
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
-
-  return settled;
-}
-
 export function isGaussianSplat(
   object: Object3D | undefined | null,
 ): object is SplatMesh {
@@ -233,8 +191,10 @@ export class GaussianSplatPlugin {
   priority = 1;
   tiles: TilesRenderer | null = null;
   #host: GaussianSplatPluginHost;
-  #sparkManager: SharedSparkRendererManager | null = null;
+  #gaussianSplatRendererManager: SharedGaussianSplatRendererManager | null =
+    null;
   #targetCoverageBoostScale: number;
+  #lifecycleGeneration = 0;
 
   constructor(host: GaussianSplatPluginHost) {
     const targetCoverageBoostScale =
@@ -250,17 +210,21 @@ export class GaussianSplatPlugin {
 
     this.#host = host;
     this.#targetCoverageBoostScale = targetCoverageBoostScale;
+    preloadOpacityRetargetWasm();
   }
 
   init(tiles: TilesRenderer) {
+    this.#lifecycleGeneration++;
     this.tiles = tiles;
-    this.#sparkManager = getSharedSparkRendererManager(this.#host);
-    this.#sparkManager.retain(tiles);
+    this.#gaussianSplatRendererManager =
+      getSharedGaussianSplatRendererManager(this.#host);
+    this.#gaussianSplatRendererManager.retain(tiles);
   }
 
   dispose() {
     if (!this.tiles) return;
 
+    this.#lifecycleGeneration++;
     const tiles = this.tiles;
 
     tiles.forEachLoadedModel((scene) => {
@@ -270,9 +234,9 @@ export class GaussianSplatPlugin {
       }
     });
 
-    if (this.#sparkManager) {
-      this.#sparkManager.release(tiles);
-      this.#sparkManager = null;
+    if (this.#gaussianSplatRendererManager) {
+      this.#gaussianSplatRendererManager.release(tiles);
+      this.#gaussianSplatRendererManager = null;
     }
 
     this.tiles = null;
@@ -288,9 +252,7 @@ export class GaussianSplatPlugin {
   }
 
   #disposeSplatScene(scene: GaussianSplatSceneGroup) {
-    const splatMeshes = this.#getSplatMeshes(scene);
-
-    for (const mesh of splatMeshes) {
+    for (const mesh of scene.userData.gaussianSplatMeshes ?? []) {
       mesh.removeFromParent();
       mesh.dispose();
     }
@@ -299,80 +261,39 @@ export class GaussianSplatPlugin {
     scene.userData.gaussianSplatExtraBytes = 0;
   }
 
-  #getSplatMeshes(scene: Group) {
-    if (isGaussianSplatScene(scene) && scene.userData.gaussianSplatMeshes) {
-      return scene.userData.gaussianSplatMeshes;
-    }
-
-    const splatMeshes: SplatMesh[] = [];
-    scene.traverse((child) => {
-      if (child !== scene && isGaussianSplat(child)) {
-        splatMeshes.push(child);
-      }
-    });
-
-    return splatMeshes;
-  }
-
   async #createMeshForDescriptor(
     descriptor: GaussianSplatPrimitiveDescriptor,
     abortSignal: AbortSignal,
   ) {
-    const source = await buildGaussianMeshSource(
+    const splats = await buildGaussianSplats(
       descriptor,
       abortSignal,
       this.#targetCoverageBoostScale,
     );
     if (abortSignal.aborted) {
-      source.extSplats.dispose();
+      splats.dispose();
       throw createAbortError();
     }
-    let byteLength = 0;
-    const fadeState = createGaussianFadeState();
 
     const mesh = new SplatMesh({
-      extSplats: source.extSplats,
-      raycastable: true,
+      splats,
       minRaycastOpacity:
         this.#host.minRaycastOpacity ?? DEFAULT_MIN_RAYCAST_OPACITY,
-      objectModifier: createGaussianFadeModifier(fadeState.opacityUniform),
     }) as GaussianSplatMesh;
 
-    const originalMaterial = mesh.material;
-    mesh.material = createGaussianFadeMaterial(mesh, fadeState);
-    if (originalMaterial && typeof originalMaterial.dispose === 'function') {
-      originalMaterial.dispose();
-    }
+    mesh.material = createGaussianFadeMaterial(mesh);
     mesh.name = 'GaussianSplatTileMesh';
     mesh.matrix.copy(descriptor.matrix);
     mesh.matrix.decompose(mesh.position, mesh.quaternion, mesh.scale);
     mesh.matrixAutoUpdate = false;
     mesh.matrixWorldNeedsUpdate = true;
-    mesh.visible = true;
     mesh.userData.gaussianSplat = true;
 
-    await mesh.initialized;
-    if (abortSignal.aborted) {
-      mesh.dispose();
-      throw createAbortError();
-    }
-    const ext = source.extSplats;
-    if (ext.extArrays) {
-      byteLength =
-        (ext.extArrays[0]?.byteLength ?? 0) +
-        (ext.extArrays[1]?.byteLength ?? 0);
-    }
-    for (const tex of ext.textures) {
-      const texData = tex?.image?.data;
-      if (texData && 'byteLength' in texData) {
-        byteLength += (texData as ArrayBufferView).byteLength;
-      }
-    }
-    if (ext.extra) {
-      for (const value of Object.values(ext.extra)) {
-        if (ArrayBuffer.isView(value)) {
-          byteLength += value.byteLength;
-        }
+    let byteLength =
+      splats.splatArrays[0].byteLength + splats.splatArrays[1].byteLength;
+    for (const value of Object.values(splats.extra)) {
+      if (ArrayBuffer.isView(value)) {
+        byteLength += value.byteLength;
       }
     }
 
@@ -389,12 +310,21 @@ export class GaussianSplatPlugin {
     uri: string,
     abortSignal: AbortSignal,
   ) {
+    const tiles = this.tiles as TilesRendererWithHooks | null;
+    if (!tiles) {
+      return null;
+    }
+
+    const lifecycleGeneration = this.#lifecycleGeneration;
+    const isStale = () =>
+      abortSignal.aborted ||
+      this.#lifecycleGeneration !== lifecycleGeneration;
+
     const normalizedExtension = extension.toLowerCase();
     if (!/^(gltf|glb)$/.test(normalizedExtension)) {
       return null;
     }
 
-    const tiles = this.tiles as TilesRendererWithHooks | null;
     let json: any;
     let embeddedBuffer: Uint8Array | null = null;
 
@@ -433,16 +363,12 @@ export class GaussianSplatPlugin {
         embeddedBuffer,
         bufferIndices.optional,
       );
-      if (abortSignal.aborted) {
+      if (isStale()) {
         return null;
       }
 
       const descriptors = buildGaussianDescriptors(json, buffers, sources);
-      if (abortSignal.aborted) {
-        return null;
-      }
-
-      const sceneMatrix = makeGaussianSceneMatrix(this.tiles, tile);
+      const sceneMatrix = makeGaussianSceneMatrix(tiles, tile);
 
       const scene = new Group() as GaussianSplatSceneGroup;
       scene.name = 'GaussianSplatScene';
@@ -450,10 +376,10 @@ export class GaussianSplatPlugin {
       scene.applyMatrix4(sceneMatrix);
       scene.matrixAutoUpdate = false;
 
-      const settled = await allSettledWithConcurrencyLimit(
-        descriptors,
-        MAX_GAUSSIAN_MESH_INIT_CONCURRENCY,
-        (descriptor) => this.#createMeshForDescriptor(descriptor, abortSignal),
+      const settled = await Promise.allSettled(
+        descriptors.map((descriptor) =>
+          this.#createMeshForDescriptor(descriptor, abortSignal),
+        ),
       );
 
       const results: { mesh: SplatMesh; byteLength: number }[] = [];
@@ -467,20 +393,16 @@ export class GaussianSplatPlugin {
         }
       }
 
-      if (abortSignal.aborted || firstError) {
+      const stale = isStale();
+      if (stale || firstError) {
         for (const { mesh } of results) {
-          mesh.removeFromParent();
           mesh.dispose();
         }
 
-        if (abortSignal.aborted) {
+        if (stale) {
           return null;
         }
 
-        console.error(
-          'GaussianSplatPlugin: Failed to parse gaussian tile',
-          firstError,
-        );
         throw firstError;
       }
 

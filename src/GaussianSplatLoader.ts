@@ -1,11 +1,11 @@
 import {
-  ExtSplats,
+  Splats,
   SplatFileType,
-} from '@sparkjsdev/spark';
+} from 'gaussian-splat-lite';
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import {
   DEFAULT_TARGET_COVERAGE_BOOST_SCALE,
-  applySplatOpacityExtensionToArrays,
+  applySplatOpacityExtensionToArraysAsync,
   collectSplatOpacityBufferIndices,
   getSplatOpacityExtensionSource,
   loadSplatOpacityExtensionData,
@@ -28,13 +28,11 @@ export type GlbData = {
 };
 
 type GaussianPrimitiveSpzSource = {
-  kind: 'spz';
   bufferViewIndex: number;
   opacityExtensionSource: SplatOpacityExtensionSource | null;
 };
 
 type GaussianPrimitiveSpzData = {
-  kind: 'spz';
   bytes: Uint8Array;
   opacityExtensionData: SplatOpacityExtensionData | null;
 };
@@ -47,10 +45,6 @@ export type GaussianSplatPrimitiveSource = {
 export type GaussianSplatPrimitiveDescriptor = {
   data: GaussianPrimitiveSpzData;
   matrix: Matrix4;
-};
-
-export type GaussianSplatMeshSource = {
-  extSplats: ExtSplats;
 };
 
 type BufferLoader = (
@@ -200,7 +194,6 @@ function getGaussianPrimitiveSource(
   }
 
   return {
-    kind: 'spz',
     bufferViewIndex: compressionExtension.bufferView,
     opacityExtensionSource: getSplatOpacityExtensionSource(
       primitive,
@@ -232,7 +225,6 @@ function loadGaussianPrimitiveData(
   }
 
   return {
-    kind: 'spz' as const,
     bytes: binaryChunk.subarray(byteOffset, byteEnd),
     opacityExtensionData: loadSplatOpacityExtensionData(
       json,
@@ -373,38 +365,39 @@ export function buildGaussianDescriptors(
   }));
 }
 
-export async function buildGaussianMeshSource(
+export async function buildGaussianSplats(
   descriptor: GaussianSplatPrimitiveDescriptor,
   abortSignal?: AbortSignal,
   targetCoverageBoostScale = DEFAULT_TARGET_COVERAGE_BOOST_SCALE,
-): Promise<GaussianSplatMeshSource> {
+): Promise<Splats> {
   throwIfAborted(abortSignal);
 
-  const extSplats = new ExtSplats({
+  const splats = new Splats({
     fileBytes: descriptor.data.bytes,
     fileType: SplatFileType.SPZ,
-    construct(splats) {
+    async construct(decodedSplats) {
       throwIfAborted(abortSignal);
-      applySplatOpacityExtensionToArrays(
-        splats.extArrays,
-        splats.numSplats,
+      await applySplatOpacityExtensionToArraysAsync(
+        decodedSplats.splatArrays,
+        decodedSplats.numSplats,
         descriptor.data.opacityExtensionData,
         targetCoverageBoostScale,
       );
+      throwIfAborted(abortSignal);
     },
   });
 
   try {
-    await extSplats.initialized;
+    await splats.initialized;
   } catch (error) {
-    extSplats.dispose();
+    splats.dispose();
     throw error;
   }
 
   if (abortSignal?.aborted) {
-    extSplats.dispose();
+    splats.dispose();
     throw createAbortError();
   }
 
-  return { extSplats };
+  return splats;
 }

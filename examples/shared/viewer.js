@@ -13,12 +13,11 @@ import {
   GeneratedSurfacePlugin,
   TileCompressionPlugin,
   TilesFadePlugin,
-  UnloadTilesPlugin,
   XYZTilesOverlay,
 } from '3d-tiles-renderer/plugins';
 import {
   GaussianSplatPlugin,
-  getSparkRendererForScene,
+  getGaussianSplatRendererForScene,
 } from '3d-tiles-rendererjs-3dgs-plugin';
 import { CameraController } from './cameraController';
 
@@ -72,7 +71,8 @@ export function runExample({ tilesets, initial = 0 }) {
   function updateRenderedSplatCount() {
     if (!renderedSplatCount) return;
 
-    const nextCount = getSparkRendererForScene(scene)?.activeSplats ?? 0;
+    const nextCount =
+      getGaussianSplatRendererForScene(scene)?.activeSplats ?? 0;
     if (nextCount !== displayedSplatCount) {
       renderedSplatCount.textContent = numberFormatter.format(nextCount);
       displayedSplatCount = nextCount;
@@ -102,7 +102,6 @@ export function runExample({ tilesets, initial = 0 }) {
   );
   imageryTiles.registerPlugin(new TilesFadePlugin());
   imageryTiles.registerPlugin(new TileCompressionPlugin());
-  imageryTiles.registerPlugin(new UnloadTilesPlugin());
   imageryTiles.setCamera(camera);
   imageryTiles.setResolutionFromRenderer(camera, renderer);
   imageryTiles.addEventListener('load-model', ({ scene: modelScene }) => {
@@ -165,7 +164,6 @@ export function runExample({ tilesets, initial = 0 }) {
     }
     next.registerPlugin(new TilesFadePlugin());
     next.registerPlugin(new TileCompressionPlugin());
-    next.registerPlugin(new UnloadTilesPlugin());
     next.registerPlugin(new GaussianSplatPlugin({ renderer, scene }));
     next.setCamera(camera);
     next.setResolutionFromRenderer(camera, renderer);
@@ -175,7 +173,6 @@ export function runExample({ tilesets, initial = 0 }) {
     lruCache.maxSize = 4096;
     lruCache.minBytesSize = 0.2 * 2 ** 30;
     lruCache.maxBytesSize = 2 * 2 ** 30;
-    lruCache.unloadPercent = 0.1;
     scene.add(next.group);
 
     let framed = false;
