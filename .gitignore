@@ -3,7 +3,6 @@ dist/
 examples/bundle/
 *.tsbuildinfo
 npm-debug.log*
-data/
 /wasm/opacity-retarget/target/
 /src/opacity_retarget.wasm
 
