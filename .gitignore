@@ -3,7 +3,6 @@ dist/
 examples/bundle/
 *.tsbuildinfo
 npm-debug.log*
-data/
 
 # macOS metadata
 .DS_Store
