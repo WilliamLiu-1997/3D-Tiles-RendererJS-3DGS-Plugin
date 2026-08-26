@@ -48,11 +48,12 @@ The package peer dependency ranges are:
 - `3d-tiles-renderer@^0.5.0`
 - `gaussian-splat-lite@^0.1.3`
 
-The browser must support fixed-width WebAssembly SIMD. Version 2 opacity
-retargeting uses an embedded WASM module with no JavaScript execution fallback;
-it does not fetch a separate `.wasm` asset at runtime. If the host page uses a
-Content Security Policy, its effective `script-src` must permit WebAssembly
-compilation, normally with `'wasm-unsafe-eval'`.
+The browser must support the WebAssembly and Web Worker features required by
+Gaussian Splat Lite. `EXT_splat_opacity` uses Gaussian Splat Lite's serializable
+`postDecode` expressions and does not add a plugin-local WASM module or runtime
+asset fetch. If the host page uses a Content Security Policy, its effective
+`script-src` must permit WebAssembly compilation, normally with
+`'wasm-unsafe-eval'`.
 
 ## Installation
 
@@ -349,27 +350,28 @@ compression schemes are rejected intentionally.
 
 Tiles may also include the draft `EXT_splat_opacity` extension:
 
-- Legacy v1 supplies display-ready Gaussian Splat Lite opacity in a `FLOAT / SCALAR`
-  accessor.
+- Legacy v1 supplies display-ready Gaussian Splat Lite opacity in a
+  `FLOAT / SCALAR` accessor. The post-decode expression converts that legacy
+  value to semantic `[0, 1000]` opacity before passing it to the library.
 - Version 2 supplies binary16 source opacity, the pre-boost shape ratio, and
   the converter's `opacity_anisotropic_v1` coverage strength. The plugin uses
   this metadata to reduce the converter boost to at most the configured
   `targetCoverageBoostScale` (default `0.1`), compensates opacity for the
-  retained two-axis area growth, then writes the result using Gaussian Splat Lite's native
-  high-opacity encoding. This processing applies only when the extension's
-  source opacity is greater than `1`; other splats retain their SPZ-decoded
-  scale and opacity.
+  retained two-axis area growth, then passes semantic opacity in the
+  `[0, 1000]` range back to Gaussian Splat Lite for encoding. This processing
+  applies only when the extension's source opacity is greater than `1`; other
+  splats retain their SPZ-decoded scale and opacity.
 
 Converter-authored v2 data is interleaved in the existing GLB buffer. The plugin
-reads it without another request, payload copy, or deinterleave, then applies it
-in one pass before Gaussian Splat Lite creates its textures. Unknown metadata and malformed or
-unavailable accessors leave the complete decoded SPZ opacity and boosted scales
-unchanged. An invalid individual value leaves only that splat at the same SPZ
-fallback. See [`EXT_splat_opacity.md`](EXT_splat_opacity.md) for the complete
-binary layout, restoration formula, and fallback contract.
-
-Opacity retargeting runs directly on the decoded splat arrays in one in-place
-pass without copying them.
+binds the two strided accessors as logical `f16` and `unorm16` attributes in a
+Gaussian Splat Lite `postDecode` program. Overlapping attribute views are
+coalesced into one compact worker payload, and the formula executes during SPZ
+decode before packed arrays return to the main thread. No second request,
+deinterleave, or main-thread array pass is required. Unknown metadata and
+malformed or unavailable accessors leave the complete decoded SPZ opacity and
+boosted scales unchanged. An invalid individual value leaves only that splat at
+the same SPZ fallback. See [`EXT_splat_opacity.md`](EXT_splat_opacity.md) for the
+complete binary layout, restoration formula, and fallback contract.
 
 ## API
 
@@ -433,20 +435,15 @@ import {
 
 ## Development
 
-Development and release checks require Node.js 20.9 or newer and a Rust
-toolchain.
+Development and release checks require Node.js 20.9 or newer. The current
+development dependency uses a sibling `../Gaussian-Splat-Lite` checkout so
+changes to the worker `postDecode` API can be tested together.
 
 ```bash
 npm install
-npm run build:wasm
 npm run check
 npm run build
 ```
-
-Building the embedded opacity module requires a Rust toolchain. The build script
-installs the `wasm32-unknown-unknown` target through `rustup` when needed. The
-generated `src/opacity_retarget.wasm` is a local build input and is not committed
-or published as a separate package file.
 
 ## Examples
 

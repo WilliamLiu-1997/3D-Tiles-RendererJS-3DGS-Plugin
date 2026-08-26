@@ -17,7 +17,6 @@ import {
   type GaussianSplatPrimitiveDescriptor,
 } from './GaussianSplatLoader';
 import { DEFAULT_TARGET_COVERAGE_BOOST_SCALE } from './GaussianSplatOpacityExtension';
-import { preloadOpacityRetargetWasm } from './GaussianSplatOpacityWasm';
 import {
   type SharedGaussianSplatRendererManager,
   getSharedGaussianSplatRendererManager,
@@ -210,7 +209,6 @@ export class GaussianSplatPlugin {
 
     this.#host = host;
     this.#targetCoverageBoostScale = targetCoverageBoostScale;
-    preloadOpacityRetargetWasm();
   }
 
   init(tiles: TilesRenderer) {

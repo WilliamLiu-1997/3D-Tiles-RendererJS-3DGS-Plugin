@@ -34,7 +34,7 @@ function getGaussianSplatOpacityFromFade(fadeIn: number, fadeOut: number) {
 function applyGaussianFadeOpacity(mesh: SplatMesh, opacity: number) {
   // Gaussian Splat Lite tracks opacity changes during SplatMesh.frameUpdate,
   // so assigning this value is enough to invalidate the generated splats.
-  mesh.opacity = Math.min(Math.max(opacity, 0), 1) * 0.8 + 0.2;
+  mesh.opacity = Math.min(Math.max(opacity, 0), 1);
 }
 
 function getFiniteFadeValue(value: unknown) {

@@ -266,26 +266,13 @@ renderer-specific high-opacity encoding is:
 This compensation is applied only to source opacity above `1`; other splats
 retain the SPZ-decoded opacity.
 
-### Gaussian Splat Lite high-opacity profile
+### Gaussian Splat Lite opacity handling
 
-Gaussian Splat Lite `0.1.2` and later stores alpha and wider-kernel shape amount in the
-low and high binary16 lanes of the first record's final word. For
-`alphaDisplay <= 1`, the reader writes `alphaDisplay` to the low lane and zero
-to the high lane. For `alphaDisplay > 1`, it writes `1` to the low lane and:
-
-```math
-S(x)
-=
-\frac{\sqrt{1+e\ln(\operatorname{clamp}(x,0,1000))}-1}{4}
-```
-
-to the high lane. This preserves standard render-time alpha independently from
-the nonlinear wider-kernel shape amount. Raw source-opacity bits must not be
-copied directly into either lane.
-
-Other renderers may consume `alphaDisplay` according to their own opacity
-representation; the two-lane `S` mapping is specific to the Gaussian Splat Lite
-profile.
+The plugin passes `alphaDisplay` to Gaussian Splat Lite as logical `opacity` in
+the `[0, 1000]` range. Gaussian Splat Lite owns its packed and nonlinear
+representation; neither this extension nor the plugin reads or writes those
+internal fields. Other renderers may consume `alphaDisplay` according to their
+own opacity representation.
 
 ## Invalid, Unknown, or Unavailable Version 2 Data
 
@@ -327,11 +314,12 @@ The referenced accessor contains display-ready encoded opacity and uses:
 - one finite, non-negative value per decoded splat
 
 A version 1 reader overwrites opacity after SPZ decode and does not retarget
-scales. A Gaussian Splat Lite `0.1.3` reader converts a value above `1` by
-writing alpha `1` to the low binary16 lane and `opacity - 1` to the high
-shape-amount lane. Version 2 deliberately uses `sourceOpacityAccessor` rather
-than reusing `opacityAccessor`, allowing a legacy reader to ignore v2 instead
-of interpreting unsigned-short source data as display-ready float opacity.
+scales. The plugin converts the legacy display encoding into semantic
+`[0, 1000]` opacity, then passes that value to Gaussian Splat Lite; the library
+owns its storage representation. Version 2 deliberately uses
+`sourceOpacityAccessor` rather than reusing `opacityAccessor`, allowing a legacy
+reader to ignore v2 instead of interpreting unsigned-short source data as
+display-ready float opacity.
 
 ## Producer Checklist
 

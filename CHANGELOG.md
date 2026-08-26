@@ -20,16 +20,15 @@ Versioning.
 - Updated splat loading and byte accounting to use `Splats`, `splatArrays`, and
   the `SplatMesh.splats` option, and added `autoUpdate` and `preUpdate` to the
   supported renderer options.
-- Updated `EXT_splat_opacity` writes for Gaussian Splat Lite `0.1.3`, storing
-  standard alpha and the nonlinear high-opacity kernel shape amount in separate
-  binary16 lanes.
-- Applied `EXT_splat_opacity` retargeting directly to Gaussian Splat Lite's
-  decoded splat arrays in one in-place pass.
-- Added a plugin-local, lookup-table-free WASM SIMD path for version 2 opacity
-  and scale retargeting. The module is embedded in the JavaScript bundle,
-  eagerly instantiated without a runtime fetch, and version 2 no longer has an
-  exact JavaScript execution fallback. Its `f32` logarithm polynomial can cross
-  a binary16 rounding boundary relative to the previous exact JavaScript result.
+- Updated `EXT_splat_opacity` processing to pass semantic opacity in the
+  `[0, 1000]` range to Gaussian Splat Lite, leaving its internal high-opacity
+  storage entirely to the library.
+- Moved `EXT_splat_opacity` version 1 and 2 processing into Gaussian Splat
+  Lite's serializable `postDecode` expressions. Logical `f32`, `f16`, and
+  `unorm16` attributes now execute in the SPZ decode worker before packed arrays
+  return to the main thread.
+- Removed the plugin-local opacity WASM module, preload path, Rust build, and
+  main-thread decoded-array pass.
 - Changed `TilesFadePlugin` compatibility to observe its independent `fadeIn`
   and `fadeOut` values and map their combined coverage to Gaussian Splat Lite
   mesh opacity while leaving decoded source splat data unchanged.
@@ -41,12 +40,9 @@ Versioning.
   configuration from the examples.
 - Updated documentation and GitHub issue templates for the Gaussian Splat Lite
   backend.
-- Aligned package verification and Trusted Publishing with Gaussian Splat Lite:
-  generated opacity WASM is ignored and rebuilt before bundling, clean installs
-  use the published renderer package instead of a sibling checkout, CI covers
-  supported Linux and Windows Node versions, and releases run dependency,
-  Rust, tarball, and `publint` checks. The npm package contains only the
-  JavaScript-embedded WASM module.
+- Switched the development dependency to the sibling Gaussian Splat Lite
+  checkout so both sides of the worker expression API are verified together,
+  and removed opacity-Rust steps from package and release checks.
 
 ### Fixed
 

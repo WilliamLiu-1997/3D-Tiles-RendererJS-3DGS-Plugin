@@ -1,5 +1,7 @@
-import { toHalf } from 'gaussian-splat-lite';
-import { applyVersion2OpacityRetargetWasm } from './GaussianSplatOpacityWasm';
+import {
+  postDecode,
+  type SplatPostDecodeProgram,
+} from 'gaussian-splat-lite';
 
 const SPLAT_OPACITY_EXTENSION_NAME = 'EXT_splat_opacity';
 const SPLAT_OPACITY_VERSION_2 = 2;
@@ -10,7 +12,7 @@ const GL_FLOAT = 5126;
 const UNSIGNED_SHORT_BYTE_SIZE = 2;
 const FLOAT_BYTE_SIZE = 4;
 const MAX_COVERAGE_BOOST_OPACITY = 1000;
-const MAX_WASM_COVERAGE_BOOST_SCALE =
+const MAX_POST_DECODE_COVERAGE_BOOST_SCALE =
   3.4028234663852886e38 / (Math.sqrt(MAX_COVERAGE_BOOST_OPACITY) - 1);
 export const DEFAULT_TARGET_COVERAGE_BOOST_SCALE = 0.1;
 
@@ -20,7 +22,6 @@ type ScalarAccessorSource = {
   count: number;
   byteStride: number;
   dataView: DataView;
-  directFloatView?: Float32Array;
 };
 
 export type SplatOpacityExtensionSource =
@@ -265,24 +266,10 @@ function loadScalarAccessorSource(
     absoluteByteOffset,
     definition.byteLength,
   );
-  let directFloatView: Float32Array | undefined;
-  if (
-    requirements.componentType === GL_FLOAT &&
-    definition.byteStride === FLOAT_BYTE_SIZE &&
-    absoluteByteOffset % FLOAT_BYTE_SIZE === 0
-  ) {
-    directFloatView = new Float32Array(
-      binaryChunk.buffer,
-      absoluteByteOffset,
-      definition.count,
-    );
-  }
-
   return {
     count: definition.count,
     byteStride: definition.byteStride,
     dataView,
-    directFloatView,
   };
 }
 
@@ -432,91 +419,159 @@ export function loadSplatOpacityExtensionData(
   }
 }
 
-function readFloat32(source: ScalarAccessorSource, index: number) {
-  return source.directFloatView
-    ? source.directFloatView[index]
-    : source.dataView.getFloat32(index * source.byteStride, true);
-}
-
-function writeGaussianSplatDisplayOpacity(
-  splatA: Uint32Array,
-  wordIndex: number,
-  opacity: number,
-) {
-  const alpha = Math.min(1, opacity);
-  const shapeAmount = Math.min(1, Math.max(0, opacity - 1));
-  splatA[wordIndex] = toHalf(alpha) | (toHalf(shapeAmount) << 16);
-}
-
-function applyVersion1Opacity(
-  splatA: Uint32Array,
-  numSplats: number,
-  opacitySource: ScalarAccessorSource,
-) {
-  const count = Math.min(
-    opacitySource.count,
-    numSplats,
-    Math.floor(splatA.length / 4),
-  );
-  for (let index = 0, wordIndex = 3; index < count; index++, wordIndex += 4) {
-    const opacity = readFloat32(opacitySource, index);
-    if (!Number.isFinite(opacity) || opacity < 0) {
-      continue;
-    }
-
-    writeGaussianSplatDisplayOpacity(splatA, wordIndex, opacity);
-  }
-}
-
-export async function applySplatOpacityExtensionToArraysAsync(
-  splatArrays: [Uint32Array, Uint32Array],
-  numSplats: number,
+export function createSplatOpacityPostDecode(
   data: SplatOpacityExtensionData | null,
   targetCoverageBoostScale = DEFAULT_TARGET_COVERAGE_BOOST_SCALE,
-) {
+): SplatPostDecodeProgram | undefined {
   if (!data) {
-    return;
+    return undefined;
   }
 
   if (data.version === 1) {
-    applyVersion1Opacity(splatArrays[0], numSplats, data.opacitySource);
-    return;
+    return postDecode.define(({ attribute, op }) => {
+      const opacity = attribute({
+        data: data.opacitySource.dataView,
+        format: 'f32',
+        count: data.opacitySource.count,
+        byteStride: data.opacitySource.byteStride,
+      });
+      const legacyKernelAmount = op.clamp(op.sub(opacity, 1), 0, 1);
+      const legacyKernelShape = op.add(
+        1,
+        op.mul(4, legacyKernelAmount),
+      );
+      const semanticOpacity = op.select(
+        op.gt(opacity, 1),
+        op.min(
+          op.exp(
+            op.div(
+              op.sub(op.mul(legacyKernelShape, legacyKernelShape), 1),
+              Math.E,
+            ),
+          ),
+          MAX_COVERAGE_BOOST_OPACITY,
+        ),
+        opacity,
+      );
+      return {
+        when: op.and(op.isFinite(opacity), op.gte(opacity, 0)),
+        opacity: semanticOpacity,
+      };
+    });
   }
 
   if (
     !Number.isFinite(targetCoverageBoostScale) ||
     targetCoverageBoostScale < 0
   ) {
-    return;
+    return undefined;
   }
 
-  const [splatA, splatB] = splatArrays;
-  const count = Math.min(
-    data.sourceOpacitySource.count,
-    data.coverageBoostRatioSource.count,
-    numSplats,
-    Math.floor(splatA.length / 4),
-    Math.floor(splatB.length / 4),
-  );
   const retainedCoverageBoostScale = Math.min(
     data.coverageBoostScale,
     targetCoverageBoostScale,
   );
+  const count = Math.min(
+    data.sourceOpacitySource.count,
+    data.coverageBoostRatioSource.count,
+  );
   if (count === 0) {
-    return;
+    return undefined;
   }
-  if (data.coverageBoostScale > MAX_WASM_COVERAGE_BOOST_SCALE) {
+  if (
+    data.coverageBoostScale > MAX_POST_DECODE_COVERAGE_BOOST_SCALE
+  ) {
     throw new Error(
-      'GaussianSplatPlugin: Coverage boost scale exceeds the opacity WASM range.',
+      'GaussianSplatPlugin: Coverage boost scale exceeds the postDecode expression range.',
     );
   }
 
-  await applyVersion2OpacityRetargetWasm(
-    splatArrays,
-    count,
-    data.sourceOpacitySource,
-    data.coverageBoostRatioSource,
-    data.coverageBoostScale,
-    retainedCoverageBoostScale,
-  );
+  return postDecode.define(({ splat, attribute, op }) => {
+    const sourceOpacity = attribute({
+      data: data.sourceOpacitySource.dataView,
+      format: 'f16',
+      count,
+      byteStride: data.sourceOpacitySource.byteStride,
+    });
+
+    const opacityFactor = op.sub(
+      op.sqrt(op.min(sourceOpacity, MAX_COVERAGE_BOOST_OPACITY)),
+      1,
+    );
+    const targetBoost = op.mul(retainedCoverageBoostScale, opacityFactor);
+    const targetRest = op.add(1, targetBoost);
+    const rawDisplayOpacity = op.div(
+      sourceOpacity,
+      op.mul(targetRest, targetRest),
+    );
+    const active = op.and(
+      op.gt(sourceOpacity, 1),
+      op.lte(sourceOpacity, MAX_COVERAGE_BOOST_OPACITY),
+    );
+
+    const patch = {
+      when: active,
+      opacity: rawDisplayOpacity,
+    };
+    if (
+      Math.fround(retainedCoverageBoostScale) ===
+      Math.fround(data.coverageBoostScale)
+    ) {
+      return patch;
+    }
+
+    const coverageBoostRatio = attribute({
+      data: data.coverageBoostRatioSource.dataView,
+      format: 'unorm16',
+      count,
+      byteStride: data.coverageBoostRatioSource.byteStride,
+    });
+    const fileBoost = op.mul(data.coverageBoostScale, opacityFactor);
+    const fileRest = op.add(1, fileBoost);
+    const restScaleMultiplier = op.div(targetRest, fileRest);
+    const ratioFactor = op.div(
+      coverageBoostRatio,
+      op.add(
+        op.sub(1, coverageBoostRatio),
+        op.mul(coverageBoostRatio, coverageBoostRatio),
+      ),
+    );
+    const fileTop = op.add(1, op.mul(fileBoost, ratioFactor));
+    const targetTop = op.add(1, op.mul(targetBoost, ratioFactor));
+    const topScaleMultiplier = op.div(targetTop, fileTop);
+
+    const largestAxis = op.maxComponentIndex(splat.scale);
+    const updatedScale = op.mul(
+      splat.scale,
+      op.vec3(
+        op.select(
+          op.eq(largestAxis, 0),
+          topScaleMultiplier,
+          restScaleMultiplier,
+        ),
+        op.select(
+          op.eq(largestAxis, 1),
+          topScaleMultiplier,
+          restScaleMultiplier,
+        ),
+        op.select(
+          op.eq(largestAxis, 2),
+          topScaleMultiplier,
+          restScaleMultiplier,
+        ),
+      ),
+    );
+    const scaleIsValid = op.and(
+      op.isFinite(updatedScale),
+      op.gt(op.component(updatedScale, 0), 0),
+      op.gt(op.component(updatedScale, 1), 0),
+      op.gt(op.component(updatedScale, 2), 0),
+    );
+
+    return {
+      ...patch,
+      when: op.and(active, scaleIsValid),
+      scale: updatedScale,
+    };
+  });
 }

@@ -5,8 +5,8 @@ import {
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import {
   DEFAULT_TARGET_COVERAGE_BOOST_SCALE,
-  applySplatOpacityExtensionToArraysAsync,
   collectSplatOpacityBufferIndices,
+  createSplatOpacityPostDecode,
   getSplatOpacityExtensionSource,
   loadSplatOpacityExtensionData,
   type SplatOpacityExtensionData,
@@ -375,16 +375,10 @@ export async function buildGaussianSplats(
   const splats = new Splats({
     fileBytes: descriptor.data.bytes,
     fileType: SplatFileType.SPZ,
-    async construct(decodedSplats) {
-      throwIfAborted(abortSignal);
-      await applySplatOpacityExtensionToArraysAsync(
-        decodedSplats.splatArrays,
-        decodedSplats.numSplats,
-        descriptor.data.opacityExtensionData,
-        targetCoverageBoostScale,
-      );
-      throwIfAborted(abortSignal);
-    },
+    postDecode: createSplatOpacityPostDecode(
+      descriptor.data.opacityExtensionData,
+      targetCoverageBoostScale,
+    ),
   });
 
   try {

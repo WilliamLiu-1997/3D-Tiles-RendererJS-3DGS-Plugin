@@ -27,16 +27,14 @@
     "node": ">=20.9"
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --clean --loader .wasm=dataurl",
-    "build:wasm": "node scripts/build-opacity-wasm.mjs",
+    "build": "tsup src/index.ts --format esm --dts --clean",
     "check": "tsc --noEmit",
-    "check:rust": "cargo fmt --manifest-path wasm/opacity-retarget/Cargo.toml --all -- --check",
     "test": "npm run check",
     "start": "vite",
     "build-examples": "vite build",
-    "prepack": "npm test && npm run check:rust && npm run build",
+    "prepack": "npm test && npm run build",
     "pack:check": "npm pack --dry-run && publint",
-    "release:check": "npm run build:wasm && npm run build-examples && npm run pack:check"
+    "release:check": "npm run build-examples && npm run pack:check"
   },
   "repository": {
     "type": "git",
@@ -69,7 +67,7 @@
   "devDependencies": {
     "@types/three": "^0.185.1",
     "3d-tiles-renderer": "^0.5.0",
-    "gaussian-splat-lite": "0.1.3",
+    "gaussian-splat-lite": "file:../Gaussian-Splat-Lite",
     "publint": "0.3.24",
     "three": "^0.185.1",
     "tsup": "^8.5.1",
