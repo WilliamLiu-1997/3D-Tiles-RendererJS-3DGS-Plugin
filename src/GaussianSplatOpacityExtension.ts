@@ -561,11 +561,8 @@ export function createSplatOpacityPostDecode(
         ),
       ),
     );
-    const scaleIsValid = op.and(
-      op.isFinite(updatedScale),
-      op.gt(op.component(updatedScale, 0), 0),
-      op.gt(op.component(updatedScale, 1), 0),
-      op.gt(op.component(updatedScale, 2), 0),
+    const scaleIsValid = op.isFinite(
+      op.div(updatedScale, op.sqrt(updatedScale)),
     );
 
     return {
