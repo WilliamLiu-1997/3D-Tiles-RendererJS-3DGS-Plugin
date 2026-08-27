@@ -3,8 +3,6 @@ dist/
 examples/bundle/
 *.tsbuildinfo
 npm-debug.log*
-/wasm/opacity-retarget/target/
-/src/opacity_retarget.wasm
 
 # macOS metadata
 .DS_Store
