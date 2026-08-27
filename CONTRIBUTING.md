@@ -4,8 +4,8 @@ Thanks for contributing to `3d-tiles-rendererjs-3dgs-plugin`.
 
 ## Development setup
 
-Development requires Node.js 20.9 or newer and a sibling
-`../Gaussian-Splat-Lite` checkout.
+Development requires Node.js 20.9 or newer. Dependencies are installed from
+npm, and no sibling Gaussian Splat Lite checkout is required.
 
 ```bash
 npm install

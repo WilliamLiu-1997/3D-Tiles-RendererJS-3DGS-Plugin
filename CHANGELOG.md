@@ -10,16 +10,16 @@ Versioning.
 ### Changed
 
 - Replaced the `@sparkjsdev/spark@2.1.0` rendering backend with
-  `gaussian-splat-lite@0.1.3` and raised the Three.js peer version to
+  `gaussian-splat-lite@0.1.5` and raised the Three.js peer version to
   `>=0.185.1`.
 - Renamed the public renderer integration API from Spark terminology to
   `gaussianSplatRendererOptions`, `getGaussianSplatRendererForScene`, and
   `updateSharedGaussianSplatRendererOptions`.
 - Replaced the custom camera-relative Spark renderer with Gaussian Splat Lite's
   built-in camera-relative handling and shared `GaussianSplatRenderer`.
-- Updated splat loading and byte accounting to use `Splats`, `splatArrays`, and
-  the `SplatMesh.splats` option, and added `autoUpdate` and `preUpdate` to the
-  supported renderer options.
+- Updated splat loading and byte accounting to use `Splats`,
+  `Splats.getByteLength()`, and the `SplatMesh.splats` option, and added
+  `autoUpdate` and `preUpdate` to the supported renderer options.
 - Updated `EXT_splat_opacity` processing to pass semantic opacity in the
   `[0, 1000]` range to Gaussian Splat Lite, leaving its internal high-opacity
   storage entirely to the library.
@@ -40,9 +40,6 @@ Versioning.
   configuration from the examples.
 - Updated documentation and GitHub issue templates for the Gaussian Splat Lite
   backend.
-- Switched the development dependency to the sibling Gaussian Splat Lite
-  checkout so both sides of the worker expression API are verified together,
-  and removed opacity-Rust steps from package and release checks.
 
 ### Fixed
 

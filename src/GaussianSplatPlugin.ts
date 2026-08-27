@@ -287,17 +287,9 @@ export class GaussianSplatPlugin {
     mesh.matrixWorldNeedsUpdate = true;
     mesh.userData.gaussianSplat = true;
 
-    let byteLength =
-      splats.splatArrays[0].byteLength + splats.splatArrays[1].byteLength;
-    for (const value of Object.values(splats.extra)) {
-      if (ArrayBuffer.isView(value)) {
-        byteLength += value.byteLength;
-      }
-    }
-
     return {
       mesh,
-      byteLength,
+      byteLength: splats.getByteLength() * 2,
     };
   }
 

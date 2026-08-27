@@ -44,9 +44,9 @@ compatibility.
 
 The package peer dependency ranges are:
 
-- `three@>=0.185.0`
+- `three@>=0.185.1`
 - `3d-tiles-renderer@^0.5.0`
-- `gaussian-splat-lite@^0.1.3`
+- `gaussian-splat-lite@^0.1.5`
 
 The browser must support the WebAssembly and Web Worker features required by
 Gaussian Splat Lite. `EXT_splat_opacity` uses Gaussian Splat Lite's serializable
@@ -435,9 +435,9 @@ import {
 
 ## Development
 
-Development and release checks require Node.js 20.9 or newer. The current
-development dependency uses a sibling `../Gaussian-Splat-Lite` checkout so
-changes to the worker `postDecode` API can be tested together.
+Development and release checks require Node.js 20.9 or newer. The Gaussian
+Splat Lite development dependency is installed from npm; no sibling checkout
+is required.
 
 ```bash
 npm install
