@@ -46,7 +46,7 @@ The package peer dependency ranges are:
 
 - `three@>=0.185.1`
 - `3d-tiles-renderer@^0.5.0`
-- `gaussian-splat-lite@^0.1.5`
+- `gaussian-splat-lite@^0.1.7`
 
 The browser must support the WebAssembly and Web Worker features required by
 Gaussian Splat Lite. `EXT_splat_opacity` uses Gaussian Splat Lite's serializable
@@ -225,6 +225,8 @@ updateSharedGaussianSplatRendererOptions(scene, {
 ```
 
 Omitted keys keep their current values.
+Material-backed options such as `premultipliedAlpha`, `depthTest`, and
+`depthWrite` are applied through Gaussian Splat Lite's renderer accessors.
 
 ## Rendering Note
 

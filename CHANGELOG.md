@@ -10,7 +10,7 @@ Versioning.
 ### Changed
 
 - Replaced the `@sparkjsdev/spark@2.1.0` rendering backend with
-  `gaussian-splat-lite@0.1.5` and raised the Three.js peer version to
+  `gaussian-splat-lite@0.1.7` and raised the Three.js peer version to
   `>=0.185.1`.
 - Renamed the public renderer integration API from Spark terminology to
   `gaussianSplatRendererOptions`, `getGaussianSplatRendererForScene`, and
@@ -36,6 +36,8 @@ Versioning.
   default of `0.05`.
 - Simplified the shared renderer lifecycle by removing the unused dispose timer
   handle and redundant renderer `raycast` override.
+- Simplified runtime renderer option updates to use Gaussian Splat Lite's
+  renderer accessors, including its material-backed options.
 - Removed redundant `UnloadTilesPlugin` registration and `unloadPercent`
   configuration from the examples.
 - Updated documentation and GitHub issue templates for the Gaussian Splat Lite

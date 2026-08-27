@@ -16,11 +16,6 @@ const _sharedGaussianSplatRendererManagersByRenderer = new WeakMap<
   SharedGaussianSplatRendererManager
 >();
 
-const MATERIAL_GAUSSIAN_SPLAT_RENDERER_OPTION_KEYS = new Set<string>([
-  'depthTest',
-  'depthWrite',
-]);
-
 function normalizeGaussianSplatRendererOptions(
   options: SupportedGaussianSplatRendererOptions = {},
 ) {
@@ -77,24 +72,15 @@ class SharedGaussianSplatRendererManager {
       string,
       unknown
     >;
-    const material = this.gaussianSplatRenderer.material as unknown as Record<
-      string,
-      unknown
-    >;
-
     let merged: Record<string, unknown> | null = null;
 
     for (const [key, nextValue] of Object.entries(next)) {
-      const target = MATERIAL_GAUSSIAN_SPLAT_RENDERER_OPTION_KEYS.has(key)
-        ? material
-        : renderer;
-
       // With no tracked opinion yet, compare against the renderer's actual
       // current value so an explicit `next === current` is a no-op.
-      const baseline = prev[key] !== undefined ? prev[key] : target[key];
+      const baseline = prev[key] !== undefined ? prev[key] : renderer[key];
       if (baseline === nextValue) continue;
 
-      target[key] = nextValue;
+      renderer[key] = nextValue;
       merged ??= { ...prev };
       merged[key] = nextValue;
     }

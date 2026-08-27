@@ -289,7 +289,7 @@ export class GaussianSplatPlugin {
 
     return {
       mesh,
-      byteLength: splats.getByteLength() * 2,
+      byteLength: splats.getByteLength() * 1.5,
     };
   }
 
