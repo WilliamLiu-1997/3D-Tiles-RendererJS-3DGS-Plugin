@@ -7,9 +7,16 @@ Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Added a 0.1.x to 0.2.x migration guide covering the backend, API, ownership,
+  and default-value changes.
+
 ### Changed
 
-- Replaced `@sparkjsdev/spark` with `gaussian-splat-lite@0.1.7` and raised the
+- Replaced `@sparkjsdev/spark` with `gaussian-splat-lite@0.1.7` for native
+  large-coordinate precision, faster sorting, and faster, more accurate
+  raycasting while retaining similar CPU and GPU memory usage; raised the
   Three.js peer requirement to `>=0.185.1`.
 - Applications now create, configure, attach, and dispose their own scene-level
   `GaussianSplatRenderer`. The plugin constructor only accepts optional
@@ -22,6 +29,9 @@ Versioning.
 - `TilesFadePlugin` integration now combines `fadeIn` and `fadeOut` coverage at
   render time without modifying decoded source opacity.
 - `minRaycastOpacity` now uses the Gaussian Splat Lite default when omitted.
+- Raycasting now uses Gaussian Splat Lite's kernel-alpha isosurface, so
+  `minRaycastOpacity` also controls each splat's hit area rather than only
+  filtering splats by their decoded peak opacity.
 - Plugin-owned mesh tracking and byte accounting are now private, so
   application-created `SplatMesh` objects are neither counted nor disposed as
   tile content.

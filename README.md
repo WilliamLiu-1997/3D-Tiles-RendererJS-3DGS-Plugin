@@ -19,17 +19,12 @@ The plugin loads glTF/GLB tile payloads that use `KHR_gaussian_splatting` with
 3D Tiles, tile disposal and memory accounting, large GIS/ECEF coordinates, and
 `TilesFadePlugin` transitions.
 
-> This package loads tiled Gaussian content, not standalone `.ply` files. Use
-> [`3DGS-PLY-3DTiles-Converter`](https://github.com/WilliamLiu-1997/3DGS-PLY-3DTiles-Converter)
-> to convert PLY data to 3D Tiles.
+> Convert standalone `.ply` files to 3D Tiles with
+> [`3DGS-PLY-3DTiles-Converter`](https://github.com/WilliamLiu-1997/3DGS-PLY-3DTiles-Converter).
 
-## Features
-
-- Explicit and implicit 3D Tiles tiling
-- SPZ-compressed Gaussian primitives in glTF and GLB tiles
-- `EXT_splat_opacity` v1 and v2
-- Tile lifecycle, memory accounting, and fade transitions
-- Camera-relative rendering for large GIS/ECEF coordinates
+> [!IMPORTANT]
+> **Upgrading from 0.1.x to 0.2.x?**
+> Follow the [0.1.x to 0.2.x migration guide](migration.md) before updating.
 
 ## Requirements
 
@@ -82,80 +77,9 @@ renderer.setAnimationLoop(() => {
 ## WebXR / VR
 
 The Gaussian splat renderer is WebXR-aware when `renderer.xr.isPresenting`.
-For a pure WebXR render loop, use the same session-switching pattern as the
-upstream
-[3D Tiles Renderer VR example](https://github.com/NASA-AMMOS/3DTilesRendererJS/blob/master/example/three/vr.js):
-register the normal camera outside XR, switch `TilesRenderer` to Three.js' XR
-`ArrayCamera` when an XR session starts, and switch back when the session ends.
-
-```js
-import { Scheduler } from '3d-tiles-renderer';
-import { VRButton } from 'three/addons/webxr/VRButton.js';
-
-tiles.setCamera(camera);
-tiles.setResolutionFromRenderer(camera, renderer);
-
-renderer.xr.enabled = true;
-document.body.appendChild(VRButton.createButton(renderer));
-
-let xrSession = null;
-
-function clearTilesCameras() {
-  for (const registeredCamera of [...tiles.cameras]) {
-    tiles.deleteCamera(registeredCamera);
-  }
-}
-
-function syncTilesCameraForXR() {
-  if (renderer.xr.isPresenting) {
-    camera.updateMatrixWorld();
-    renderer.xr.updateCamera(camera);
-
-    const xrCamera = renderer.xr.getCamera();
-
-    if (xrSession === null) {
-      clearTilesCameras();
-      tiles.setCamera(xrCamera);
-
-      xrSession = renderer.xr.getSession();
-      Scheduler.setXRSession(xrSession);
-    }
-
-    const firstViewCamera = xrCamera.cameras[0];
-    if (firstViewCamera) {
-      tiles.setResolution(
-        xrCamera,
-        firstViewCamera.viewport.z,
-        firstViewCamera.viewport.w,
-      );
-    }
-  } else if (xrSession !== null) {
-    clearTilesCameras();
-    tiles.setCamera(camera);
-    tiles.setResolutionFromRenderer(camera, renderer);
-
-    xrSession = null;
-    Scheduler.setXRSession(null);
-  }
-}
-
-renderer.setAnimationLoop(() => {
-  syncTilesCameraForXR();
-  tiles.update();
-  renderer.render(scene, camera);
-});
-```
-
-The important ordering is `camera.updateMatrixWorld()` before
-`renderer.xr.updateCamera(camera)`, and `syncTilesCameraForXR()` before
-`tiles.update()`. That makes tile visibility and LOD use the headset camera
-during XR. Re-run `tiles.setResolutionFromRenderer(camera, renderer)` from your
-resize handler when the canvas size changes. For AR placement and hit testing,
-use an AR-specific flow such as the
-[Three.js AR hit-test example](https://threejs.org/examples/#webxr_ar_hittest)
-in addition to this 3D Tiles camera/session pattern. AR applications still need
-application-level reference-space alignment, anchors, real-world depth, and
-occlusion handling.
+WebXR applications must switch `TilesRenderer` between the normal camera and
+Three.js' XR `ArrayCamera` as sessions start and end. See the
+[WebXR / VR integration guide](docs/webxr.md) for the complete setup.
 
 ## Gaussian Splat Lite renderer
 
@@ -183,52 +107,6 @@ For the complete list of options, defaults, runtime properties, and on-demand
 rendering setup, see the
 [`GaussianSplatRenderer` settings page](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/blob/main/docs/GaussianSplatRenderer.md).
 
-## Rendering with a globe
-
-When compositing Gaussian splats with an ellipsoid globe or imagery tiles, keep
-the globe in the opaque render path whenever possible.
-
-Gaussian splats are transparent, depth-tested geometry. If the globe is also
-transparent, both systems enter Three.js' object-sorted transparent queue. Near
-the horizon, the globe may then occlude an entire splat set at once.
-
-To avoid that artifact, keep globe materials in the opaque pass with
-`transparent = false` and `depthWrite = true` whenever possible.
-
-For example, the demo forces each imagery tile back into the opaque pass when
-it loads:
-
-```ts
-const imageryOverlay = new XYZTilesOverlay({
-  levels: 18,
-  url: '...',
-});
-
-const imageryTiles = new TilesRenderer();
-imageryTiles.registerPlugin(
-  new GeneratedSurfacePlugin({
-    overlay: imageryOverlay,
-    shape: 'ellipsoid',
-    center: true,
-    applyOverlayTexture: true,
-  }),
-);
-
-imageryTiles.addEventListener('load-model', ({ scene: modelScene }) => {
-  modelScene.traverse((child) => {
-    if (!child.material) return;
-
-    const materials = Array.isArray(child.material)
-      ? child.material
-      : [child.material];
-
-    for (const material of materials) {
-      material.transparent = false;
-    }
-  });
-});
-```
-
 ## Supported content
 
 A tile is handled when:
@@ -253,7 +131,7 @@ new GaussianSplatPlugin({
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `minRaycastOpacity` | Gaussian Splat Lite default | Minimum opacity used when raycasting a splat mesh. |
+| `minRaycastOpacity` | Gaussian Splat Lite default (`0.05`) | Per-splat kernel-alpha threshold that clips the raycast hit area. |
 | `targetCoverageBoostScale` | `0.1` | Maximum converter coverage boost retained for `EXT_splat_opacity` v2. Use `0` to remove it. |
 
 Public exports:

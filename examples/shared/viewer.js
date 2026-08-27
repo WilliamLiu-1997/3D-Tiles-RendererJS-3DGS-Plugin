@@ -24,25 +24,6 @@ const SATELLITE_IMAGERY = {
   levels: 18,
 };
 
-function forceOpaqueMaterial(material) {
-  if (!material) return;
-
-  if (Array.isArray(material)) {
-    material.forEach(forceOpaqueMaterial);
-    return;
-  }
-
-  material.transparent = false;
-}
-
-function forceOpaqueScene(root) {
-  root.traverse((child) => {
-    if (child.material) {
-      forceOpaqueMaterial(child.material);
-    }
-  });
-}
-
 export function runExample({ tilesets, initial = 0 }) {
   const renderer = new WebGLRenderer({
     antialias: false,
@@ -103,9 +84,6 @@ export function runExample({ tilesets, initial = 0 }) {
   imageryTiles.registerPlugin(new TileCompressionPlugin());
   imageryTiles.setCamera(camera);
   imageryTiles.setResolutionFromRenderer(camera, renderer);
-  imageryTiles.addEventListener('load-model', ({ scene: modelScene }) => {
-    forceOpaqueScene(modelScene);
-  });
   scene.add(imageryTiles.group);
 
   const controls = new CameraController(renderer, scene, camera);
