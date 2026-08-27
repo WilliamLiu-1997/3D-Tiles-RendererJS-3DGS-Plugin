@@ -1,26 +1,23 @@
 import {
+  SplatFileType,
   SplatMesh,
-  type GaussianSplatRendererOptions,
   type SplatMeshOptions,
 } from 'gaussian-splat-lite';
-import { Group, Matrix4, Object3D, WebGLRenderer, type Scene } from 'three';
+import { Group, Matrix4 } from 'three';
 import type { Tile, TilesRenderer } from '3d-tiles-renderer';
 import {
   buildGaussianPrimitiveSources,
   collectGaussianBufferIndices,
   buildGaussianDescriptors,
-  buildGaussianSplats,
-  createAbortError,
   parseGlb,
   parseGltfJson,
   resolveGltfBuffers,
   type GaussianSplatPrimitiveDescriptor,
 } from './GaussianSplatLoader';
-import { DEFAULT_TARGET_COVERAGE_BOOST_SCALE } from './GaussianSplatOpacityExtension';
 import {
-  type SharedGaussianSplatRendererManager,
-  getSharedGaussianSplatRendererManager,
-} from './SharedGaussianSplatRendererManager';
+  DEFAULT_TARGET_COVERAGE_BOOST_SCALE,
+  createSplatOpacityPostDecode,
+} from './GaussianSplatOpacityExtension';
 import {
   createGaussianFadeMaterial,
   type GaussianSplatFadeMaterial,
@@ -45,66 +42,28 @@ type TilesRendererWithHooks = TilesRenderer & {
   ): T | null;
 };
 
-export const GAUSSIAN_SPLAT_RENDERER_OPTION_KEYS = [
-  'premultipliedAlpha',
-  'autoUpdate',
-  'preUpdate',
-  'maxStdDev',
-  'minPixelRadius',
-  'maxPixelRadius',
-  'minAlpha',
-  'enable2DGS',
-  'preBlurAmount',
-  'blurAmount',
-  'clipXY',
-  'focalAdjustment',
-  'sortRadial',
-  'minSortIntervalMs',
-  'depthTest',
-  'depthWrite',
-] as const;
-
-export type SupportedGaussianSplatRendererOptionKey =
-  (typeof GAUSSIAN_SPLAT_RENDERER_OPTION_KEYS)[number];
-
-export type SupportedGaussianSplatRendererOptions = Pick<
-  GaussianSplatRendererOptions,
-  SupportedGaussianSplatRendererOptionKey
->;
-
-export type GaussianSplatPluginHost = {
-  renderer: WebGLRenderer;
-  scene: Scene;
+export type GaussianSplatPluginOptions = {
   minRaycastOpacity?: SplatMeshOptions['minRaycastOpacity'];
-  gaussianSplatRendererOptions?: SupportedGaussianSplatRendererOptions;
   targetCoverageBoostScale?: number;
-};
-
-type GaussianSplatSceneGroup = Group & {
-  userData: {
-    gaussianSplatScene: true;
-    gaussianSplatExtraBytes?: number;
-    gaussianSplatMeshes?: SplatMesh[];
-  };
 };
 
 type GaussianSplatMesh = SplatMesh & {
   material: GaussianSplatFadeMaterial;
 };
 
-const DEFAULT_MIN_RAYCAST_OPACITY = 0.05;
-
 const _sceneMatrix = new Matrix4();
+// Account for the retained splat data plus the renderer-side working copies.
+const SPLAT_MEMORY_ESTIMATE_MULTIPLIER = 1.5;
 
 function makeGaussianSceneMatrix(
-  tiles: TilesRenderer | null,
+  tiles: TilesRenderer,
   tile: TileWithEngineData,
 ) {
   const target = _sceneMatrix.identity();
   // NOTE: _upRotationMatrix is an internal API of TilesRenderer — may change across versions.
   const upRotationMatrix = (
-    tiles as (TilesRenderer & { _upRotationMatrix?: Matrix4 }) | null
-  )?._upRotationMatrix;
+    tiles as TilesRenderer & { _upRotationMatrix?: Matrix4 }
+  )._upRotationMatrix;
   if (upRotationMatrix) {
     target.copy(upRotationMatrix);
   }
@@ -117,38 +76,27 @@ function makeGaussianSceneMatrix(
   return target;
 }
 
-function isAbortError(error: unknown) {
-  return (
-    error instanceof Error &&
-    (error.name === 'AbortError' || /aborted/i.test(error.message))
-  );
-}
-
 async function fetchArrayBufferWithPlugins(
-  tiles: TilesRendererWithHooks | null,
+  tiles: TilesRendererWithHooks,
   url: string,
-  tile: TileWithEngineData | null,
+  tile: TileWithEngineData,
   abortSignal: AbortSignal,
 ) {
   let processedUrl = url;
-  if (tiles) {
-    tiles.invokeAllPlugins((plugin) => {
-      processedUrl = plugin.preprocessURL
-        ? plugin.preprocessURL(processedUrl, tile)
-        : processedUrl;
-    });
-  }
+  tiles.invokeAllPlugins((plugin) => {
+    processedUrl = plugin.preprocessURL
+      ? plugin.preprocessURL(processedUrl, tile)
+      : processedUrl;
+  });
 
   const fetchOptions = {
-    ...(tiles?.fetchOptions ?? {}),
+    ...tiles.fetchOptions,
     signal: abortSignal,
   };
-  const result = tiles
-    ? await tiles.invokeOnePlugin(
-        (plugin) =>
-          plugin.fetchData && plugin.fetchData(processedUrl, fetchOptions),
-      )
-    : await fetch(processedUrl, fetchOptions);
+  const result = await tiles.invokeOnePlugin(
+    (plugin) =>
+      plugin.fetchData && plugin.fetchData(processedUrl, fetchOptions),
+  );
 
   if (result instanceof Response) {
     if (!result.ok) {
@@ -173,31 +121,19 @@ async function fetchArrayBufferWithPlugins(
   );
 }
 
-export function isGaussianSplat(
-  object: Object3D | undefined | null,
-): object is SplatMesh {
-  return Boolean(object?.userData?.gaussianSplat);
-}
-
-export function isGaussianSplatScene(
-  scene: Object3D | undefined | null,
-): scene is GaussianSplatSceneGroup {
-  return Boolean(scene?.userData?.gaussianSplatScene);
-}
-
 export class GaussianSplatPlugin {
   name = 'GAUSSIAN_SPLAT_PLUGIN';
   priority = 1;
   tiles: TilesRenderer | null = null;
-  #host: GaussianSplatPluginHost;
-  #gaussianSplatRendererManager: SharedGaussianSplatRendererManager | null =
-    null;
+  #minRaycastOpacity: SplatMeshOptions['minRaycastOpacity'];
   #targetCoverageBoostScale: number;
   #lifecycleGeneration = 0;
+  #splatMeshesByScene = new WeakMap<Group, readonly SplatMesh[]>();
 
-  constructor(host: GaussianSplatPluginHost) {
-    const targetCoverageBoostScale =
-      host.targetCoverageBoostScale ?? DEFAULT_TARGET_COVERAGE_BOOST_SCALE;
+  constructor({
+    minRaycastOpacity,
+    targetCoverageBoostScale = DEFAULT_TARGET_COVERAGE_BOOST_SCALE,
+  }: GaussianSplatPluginOptions = {}) {
     if (
       !Number.isFinite(targetCoverageBoostScale) ||
       targetCoverageBoostScale < 0
@@ -207,16 +143,13 @@ export class GaussianSplatPlugin {
       );
     }
 
-    this.#host = host;
+    this.#minRaycastOpacity = minRaycastOpacity;
     this.#targetCoverageBoostScale = targetCoverageBoostScale;
   }
 
   init(tiles: TilesRenderer) {
     this.#lifecycleGeneration++;
     this.tiles = tiles;
-    this.#gaussianSplatRendererManager =
-      getSharedGaussianSplatRendererManager(this.#host);
-    this.#gaussianSplatRendererManager.retain(tiles);
   }
 
   dispose() {
@@ -226,71 +159,62 @@ export class GaussianSplatPlugin {
     const tiles = this.tiles;
 
     tiles.forEachLoadedModel((scene) => {
-      const group = scene as Group;
-      if (isGaussianSplatScene(group)) {
-        this.#disposeSplatScene(group);
-      }
+      this.#disposeSplatScene(scene as Group);
     });
-
-    if (this.#gaussianSplatRendererManager) {
-      this.#gaussianSplatRendererManager.release(tiles);
-      this.#gaussianSplatRendererManager = null;
-    }
 
     this.tiles = null;
   }
 
   disposeTile(tile: TileWithEngineData) {
     const scene = tile.engineData?.scene as Group | undefined;
-    if (!isGaussianSplatScene(scene)) {
+    if (scene) {
+      this.#disposeSplatScene(scene);
+    }
+  }
+
+  #disposeSplatScene(scene: Group) {
+    const meshes = this.#splatMeshesByScene.get(scene);
+    if (!meshes) {
       return;
     }
 
-    this.#disposeSplatScene(scene);
-  }
-
-  #disposeSplatScene(scene: GaussianSplatSceneGroup) {
-    for (const mesh of scene.userData.gaussianSplatMeshes ?? []) {
+    this.#splatMeshesByScene.delete(scene);
+    for (const mesh of meshes) {
       mesh.removeFromParent();
       mesh.dispose();
     }
-
-    scene.userData.gaussianSplatMeshes = [];
-    scene.userData.gaussianSplatExtraBytes = 0;
   }
 
   async #createMeshForDescriptor(
     descriptor: GaussianSplatPrimitiveDescriptor,
     abortSignal: AbortSignal,
   ) {
-    const splats = await buildGaussianSplats(
-      descriptor,
-      abortSignal,
-      this.#targetCoverageBoostScale,
-    );
-    if (abortSignal.aborted) {
-      splats.dispose();
-      throw createAbortError();
-    }
+    abortSignal.throwIfAborted();
 
     const mesh = new SplatMesh({
-      splats,
-      minRaycastOpacity:
-        this.#host.minRaycastOpacity ?? DEFAULT_MIN_RAYCAST_OPACITY,
+      fileBytes: descriptor.data.bytes,
+      fileType: SplatFileType.SPZ,
+      postDecode: createSplatOpacityPostDecode(
+        descriptor.data.opacityExtensionData,
+        this.#targetCoverageBoostScale,
+      ),
+      minRaycastOpacity: this.#minRaycastOpacity,
     }) as GaussianSplatMesh;
+
+    try {
+      await mesh.initialized;
+      abortSignal.throwIfAborted();
+    } catch (error) {
+      mesh.dispose();
+      throw error;
+    }
 
     mesh.material = createGaussianFadeMaterial(mesh);
     mesh.name = 'GaussianSplatTileMesh';
-    mesh.matrix.copy(descriptor.matrix);
-    mesh.matrix.decompose(mesh.position, mesh.quaternion, mesh.scale);
+    mesh.applyMatrix4(descriptor.matrix);
     mesh.matrixAutoUpdate = false;
-    mesh.matrixWorldNeedsUpdate = true;
-    mesh.userData.gaussianSplat = true;
 
-    return {
-      mesh,
-      byteLength: splats.getByteLength() * 1.5,
-    };
+    return mesh;
   }
 
   parseTile(
@@ -360,9 +284,8 @@ export class GaussianSplatPlugin {
       const descriptors = buildGaussianDescriptors(json, buffers, sources);
       const sceneMatrix = makeGaussianSceneMatrix(tiles, tile);
 
-      const scene = new Group() as GaussianSplatSceneGroup;
+      const scene = new Group();
       scene.name = 'GaussianSplatScene';
-      scene.userData.gaussianSplatScene = true;
       scene.applyMatrix4(sceneMatrix);
       scene.matrixAutoUpdate = false;
 
@@ -372,20 +295,17 @@ export class GaussianSplatPlugin {
         ),
       );
 
-      const results: { mesh: SplatMesh; byteLength: number }[] = [];
-      let firstError: unknown = null;
-
-      for (const outcome of settled) {
-        if (outcome.status === 'fulfilled') {
-          results.push(outcome.value);
-        } else if (!firstError && !isAbortError(outcome.reason)) {
-          firstError = outcome.reason;
-        }
-      }
+      const meshes = settled.flatMap((outcome) =>
+        outcome.status === 'fulfilled' ? [outcome.value] : [],
+      );
+      const failure = settled.find(
+        (outcome): outcome is PromiseRejectedResult =>
+          outcome.status === 'rejected',
+      );
 
       const stale = isStale();
-      if (stale || firstError) {
-        for (const { mesh } of results) {
+      if (stale || failure) {
+        for (const mesh of meshes) {
           mesh.dispose();
         }
 
@@ -393,17 +313,15 @@ export class GaussianSplatPlugin {
           return null;
         }
 
-        throw firstError;
+        if (failure) {
+          throw failure.reason;
+        }
       }
 
-      let totalByteLength = 0;
-      scene.userData.gaussianSplatMeshes = results.map(({ mesh }) => mesh);
-      for (const { mesh, byteLength } of results) {
+      for (const mesh of meshes) {
         scene.add(mesh);
-        totalByteLength += byteLength;
       }
-
-      scene.userData.gaussianSplatExtraBytes = totalByteLength;
+      this.#splatMeshesByScene.set(scene, meshes);
 
       tile.engineData.scene = scene;
       tile.engineData.geometry = [];
@@ -415,6 +333,17 @@ export class GaussianSplatPlugin {
   }
 
   calculateBytesUsed(_tile: TileWithEngineData, scene?: Group) {
-    return scene?.userData?.gaussianSplatExtraBytes ?? 0;
+    const meshes = scene && this.#splatMeshesByScene.get(scene);
+    if (!meshes) {
+      return 0;
+    }
+
+    let bytesUsed = 0;
+    for (const mesh of meshes) {
+      bytesUsed +=
+        (mesh.splats?.getByteLength() ?? 0) *
+        SPLAT_MEMORY_ESTIMATE_MULTIPLIER;
+    }
+    return bytesUsed;
   }
 }

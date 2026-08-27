@@ -1,12 +1,6 @@
-import {
-  Splats,
-  SplatFileType,
-} from 'gaussian-splat-lite';
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import {
-  DEFAULT_TARGET_COVERAGE_BOOST_SCALE,
   collectSplatOpacityBufferIndices,
-  createSplatOpacityPostDecode,
   getSplatOpacityExtensionSource,
   loadSplatOpacityExtensionData,
   type SplatOpacityExtensionData,
@@ -134,7 +128,7 @@ export async function resolveGltfBuffers(
   await Promise.all(
     uniqueIndices.map(async (index) => {
       try {
-        throwIfAborted(abortSignal);
+        abortSignal?.throwIfAborted();
 
         const bufferDefinition = bufferDefinitions[index];
         if (!bufferDefinition) {
@@ -270,18 +264,6 @@ export function collectGaussianBufferIndices(
   };
 }
 
-export function createAbortError() {
-  const error = new Error('GaussianSplatPlugin: Aborted.');
-  error.name = 'AbortError';
-  return error;
-}
-
-function throwIfAborted(abortSignal?: AbortSignal) {
-  if (abortSignal?.aborted) {
-    throw createAbortError();
-  }
-}
-
 function getNodeMatrix(node: any, target: Matrix4) {
   if (node.matrix) {
     target.fromArray(node.matrix);
@@ -363,35 +345,4 @@ export function buildGaussianDescriptors(
     data: loadGaussianPrimitiveData(json, buffers, source.data),
     matrix: source.matrix,
   }));
-}
-
-export async function buildGaussianSplats(
-  descriptor: GaussianSplatPrimitiveDescriptor,
-  abortSignal?: AbortSignal,
-  targetCoverageBoostScale = DEFAULT_TARGET_COVERAGE_BOOST_SCALE,
-): Promise<Splats> {
-  throwIfAborted(abortSignal);
-
-  const splats = new Splats({
-    fileBytes: descriptor.data.bytes,
-    fileType: SplatFileType.SPZ,
-    postDecode: createSplatOpacityPostDecode(
-      descriptor.data.opacityExtensionData,
-      targetCoverageBoostScale,
-    ),
-  });
-
-  try {
-    await splats.initialized;
-  } catch (error) {
-    splats.dispose();
-    throw error;
-  }
-
-  if (abortSignal?.aborted) {
-    splats.dispose();
-    throw createAbortError();
-  }
-
-  return splats;
 }

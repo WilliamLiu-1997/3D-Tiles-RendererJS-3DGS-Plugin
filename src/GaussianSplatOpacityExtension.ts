@@ -421,7 +421,7 @@ export function loadSplatOpacityExtensionData(
 
 export function createSplatOpacityPostDecode(
   data: SplatOpacityExtensionData | null,
-  targetCoverageBoostScale = DEFAULT_TARGET_COVERAGE_BOOST_SCALE,
+  targetCoverageBoostScale: number,
 ): SplatPostDecodeProgram | undefined {
   if (!data) {
     return undefined;
@@ -458,13 +458,6 @@ export function createSplatOpacityPostDecode(
         opacity: semanticOpacity,
       };
     });
-  }
-
-  if (
-    !Number.isFinite(targetCoverageBoostScale) ||
-    targetCoverageBoostScale < 0
-  ) {
-    return undefined;
   }
 
   const retainedCoverageBoostScale = Math.min(

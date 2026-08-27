@@ -1,9 +1,6 @@
 import type { SplatMesh } from 'gaussian-splat-lite';
 
 export type GaussianSplatFadeMaterial = Record<PropertyKey, unknown> & {
-  defines?: Record<string, unknown>;
-  needsUpdate?: boolean;
-  onBeforeCompile?: (shader: unknown) => void;
   dispose(): void;
 };
 
@@ -38,8 +35,7 @@ function applyGaussianFadeOpacity(mesh: SplatMesh, opacity: number) {
 }
 
 function getFiniteFadeValue(value: unknown) {
-  const numericValue = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(numericValue) ? numericValue : 0;
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
 function isGaussianFadeParamsLike(

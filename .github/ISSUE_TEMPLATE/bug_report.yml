@@ -38,7 +38,7 @@ body:
     id: gaussian_splat_lite_version
     attributes:
       label: Gaussian Splat Lite version
-      placeholder: 0.1.0
+      placeholder: 0.1.7
     validations:
       required: true
 
@@ -69,8 +69,10 @@ body:
       description: Include the relevant setup code or the exact steps needed to reproduce.
       render: ts
       placeholder: |
+        const splatRenderer = new GaussianSplatRenderer({ renderer });
+        scene.add(splatRenderer);
         const tiles = new TilesRenderer(url);
-        tiles.registerPlugin(new GaussianSplatPlugin({ renderer, scene }));
+        tiles.registerPlugin(new GaussianSplatPlugin());
     validations:
       required: true
 

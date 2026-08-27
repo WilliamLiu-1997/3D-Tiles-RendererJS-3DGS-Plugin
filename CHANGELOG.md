@@ -9,39 +9,34 @@ Versioning.
 
 ### Changed
 
-- Replaced the `@sparkjsdev/spark@2.1.0` rendering backend with
-  `gaussian-splat-lite@0.1.7` and raised the Three.js peer version to
-  `>=0.185.1`.
-- Renamed the public renderer integration API from Spark terminology to
-  `gaussianSplatRendererOptions`, `getGaussianSplatRendererForScene`, and
-  `updateSharedGaussianSplatRendererOptions`.
-- Replaced the custom camera-relative Spark renderer with Gaussian Splat Lite's
-  built-in camera-relative handling and shared `GaussianSplatRenderer`.
-- Updated splat loading and byte accounting to use `Splats`,
-  `Splats.getByteLength()`, and the `SplatMesh.splats` option, and added
-  `autoUpdate` and `preUpdate` to the supported renderer options.
-- Updated `EXT_splat_opacity` processing to pass semantic opacity in the
-  `[0, 1000]` range to Gaussian Splat Lite, leaving its internal high-opacity
-  storage entirely to the library.
-- Moved `EXT_splat_opacity` version 1 and 2 processing into Gaussian Splat
-  Lite's serializable `postDecode` expressions. Logical `f32`, `f16`, and
-  `unorm16` attributes now execute in the SPZ decode worker before packed arrays
-  return to the main thread.
-- Removed the plugin-local opacity WASM module, preload path, Rust build, and
-  main-thread decoded-array pass.
-- Changed `TilesFadePlugin` compatibility to observe its independent `fadeIn`
-  and `fadeOut` values and map their combined coverage to Gaussian Splat Lite
-  mesh opacity while leaving decoded source splat data unchanged.
-- Changed the default `minRaycastOpacity` from `0.1` to the Gaussian Splat Lite
-  default of `0.05`.
-- Simplified the shared renderer lifecycle by removing the unused dispose timer
-  handle and redundant renderer `raycast` override.
-- Simplified runtime renderer option updates to use Gaussian Splat Lite's
-  renderer accessors, including its material-backed options.
-- Removed redundant `UnloadTilesPlugin` registration and `unloadPercent`
-  configuration from the examples.
-- Updated documentation and GitHub issue templates for the Gaussian Splat Lite
-  backend.
+- Replaced `@sparkjsdev/spark` with `gaussian-splat-lite@0.1.7` and raised the
+  Three.js peer requirement to `>=0.185.1`.
+- Applications now create, configure, attach, and dispose their own scene-level
+  `GaussianSplatRenderer`. The plugin constructor only accepts optional
+  `GaussianSplatPluginOptions`.
+- Splat tiles now create Gaussian Splat Lite `SplatMesh` instances directly
+  from SPZ bytes and use the library's built-in camera-relative rendering.
+- `EXT_splat_opacity` v1/v2 conversion now runs as a serializable `postDecode`
+  expression in the SPZ decode worker and passes semantic opacity in the
+  `[0, 1000]` range to Gaussian Splat Lite.
+- `TilesFadePlugin` integration now combines `fadeIn` and `fadeOut` coverage at
+  render time without modifying decoded source opacity.
+- `minRaycastOpacity` now uses the Gaussian Splat Lite default when omitted.
+- Plugin-owned mesh tracking and byte accounting are now private, so
+  application-created `SplatMesh` objects are neither counted nor disposed as
+  tile content.
+- Simplified the examples and updated documentation and issue templates for the
+  Gaussian Splat Lite backend.
+
+### Removed
+
+- Removed the shared Spark renderer manager, automatic renderer creation, and
+  the `renderer`, `scene`, and renderer-option constructor fields.
+- Removed the public renderer lookup/update helpers and the `isGaussianSplat`
+  and `isGaussianSplatScene` guards.
+- Removed the plugin-local opacity WASM/preload pipeline, Rust build, and
+  main-thread decoded-array processing.
+- Removed redundant `UnloadTilesPlugin` and `unloadPercent` example setup.
 
 ### Fixed
 

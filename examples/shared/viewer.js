@@ -15,10 +15,8 @@ import {
   TilesFadePlugin,
   XYZTilesOverlay,
 } from '3d-tiles-renderer/plugins';
-import {
-  GaussianSplatPlugin,
-  getGaussianSplatRendererForScene,
-} from '3d-tiles-rendererjs-3dgs-plugin';
+import { GaussianSplatPlugin } from '3d-tiles-rendererjs-3dgs-plugin';
+import { GaussianSplatRenderer } from 'gaussian-splat-lite';
 import { CameraController } from './cameraController';
 
 const SATELLITE_IMAGERY = {
@@ -61,6 +59,8 @@ export function runExample({ tilesets, initial = 0 }) {
 
   const scene = new Scene();
   scene.background = new Color(0xffffff);
+  const gaussianSplatRenderer = new GaussianSplatRenderer({ renderer });
+  scene.add(gaussianSplatRenderer);
 
   const renderedSplatCount = document.querySelector(
     '#rendered-splat-count',
@@ -71,8 +71,7 @@ export function runExample({ tilesets, initial = 0 }) {
   function updateRenderedSplatCount() {
     if (!renderedSplatCount) return;
 
-    const nextCount =
-      getGaussianSplatRendererForScene(scene)?.activeSplats ?? 0;
+    const nextCount = gaussianSplatRenderer.activeSplats;
     if (nextCount !== displayedSplatCount) {
       renderedSplatCount.textContent = numberFormatter.format(nextCount);
       displayedSplatCount = nextCount;
@@ -164,7 +163,7 @@ export function runExample({ tilesets, initial = 0 }) {
     }
     next.registerPlugin(new TilesFadePlugin());
     next.registerPlugin(new TileCompressionPlugin());
-    next.registerPlugin(new GaussianSplatPlugin({ renderer, scene }));
+    next.registerPlugin(new GaussianSplatPlugin());
     next.setCamera(camera);
     next.setResolutionFromRenderer(camera, renderer);
 
