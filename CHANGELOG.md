@@ -7,6 +7,8 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-28
+
 ### Added
 
 - Added a 0.1.x to 0.2.x migration guide covering the backend, API, ownership,
