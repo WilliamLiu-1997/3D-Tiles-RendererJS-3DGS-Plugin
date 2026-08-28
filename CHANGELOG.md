@@ -7,6 +7,13 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-28
+
+### Fixed
+
+- Kept visible Gaussian splat tiles synchronized when the tiles renderer group
+  or one of its ancestors changes transform.
+
 ## [0.2.0] - 2026-08-28
 
 ### Added

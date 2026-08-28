@@ -287,7 +287,6 @@ export class GaussianSplatPlugin {
       const scene = new Group();
       scene.name = 'GaussianSplatScene';
       scene.applyMatrix4(sceneMatrix);
-      scene.matrixAutoUpdate = false;
 
       const settled = await Promise.allSettled(
         descriptors.map((descriptor) =>
