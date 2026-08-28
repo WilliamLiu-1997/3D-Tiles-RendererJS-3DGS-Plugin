@@ -266,32 +266,13 @@ renderer-specific high-opacity encoding is:
 This compensation is applied only to source opacity above `1`; other splats
 retain the SPZ-decoded opacity.
 
-### Spark high-opacity profile
+### Gaussian Splat Lite opacity handling
 
-Spark-compatible readers encode `alphaDisplay` as follows:
-
-```math
-E(x)=x \quad \text{for } x\le1,
-```
-
-and, for `x > 1`:
-
-```math
-E(x)
-=
-\operatorname{clamp}\left(
-1+\frac{\sqrt{1+e\ln(\operatorname{clamp}(x,10^{-6},1000))}-1}{4},
-1,
-2
-\right).
-```
-
-The reader writes `E(alphaDisplay)` to Spark's half-float opacity field. Raw
-source-opacity bits must not be copied directly into that field because Spark
-expects this `[1, 2]` encoding for opacity above `1`.
-
-Other renderers may consume `alphaDisplay` according to their own opacity
-representation; the `E` mapping is specific to the Spark profile.
+The plugin passes `alphaDisplay` to Gaussian Splat Lite as logical `opacity` in
+the `[0, 1000]` range. Gaussian Splat Lite owns its packed and nonlinear
+representation; neither this extension nor the plugin reads or writes those
+internal fields. Other renderers may consume `alphaDisplay` according to their
+own opacity representation.
 
 ## Invalid, Unknown, or Unavailable Version 2 Data
 
@@ -325,7 +306,7 @@ type ExtSplatOpacityV1 = {
 };
 ```
 
-The referenced accessor contains display-ready Spark opacity and uses:
+The referenced accessor contains display-ready encoded opacity and uses:
 
 - `componentType: 5126` (`FLOAT`)
 - `type: "SCALAR"`
@@ -333,9 +314,12 @@ The referenced accessor contains display-ready Spark opacity and uses:
 - one finite, non-negative value per decoded splat
 
 A version 1 reader overwrites opacity after SPZ decode and does not retarget
-scales. Version 2 deliberately uses `sourceOpacityAccessor` rather than reusing
-`opacityAccessor`, allowing a legacy reader to ignore v2 instead of interpreting
-unsigned-short source data as display-ready float opacity.
+scales. The plugin converts the legacy display encoding into semantic
+`[0, 1000]` opacity, then passes that value to Gaussian Splat Lite; the library
+owns its storage representation. Version 2 deliberately uses
+`sourceOpacityAccessor` rather than reusing `opacityAccessor`, allowing a legacy
+reader to ignore v2 instead of interpreting unsigned-short source data as
+display-ready float opacity.
 
 ## Producer Checklist
 

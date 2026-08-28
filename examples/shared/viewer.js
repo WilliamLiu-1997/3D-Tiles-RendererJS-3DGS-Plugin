@@ -13,38 +13,16 @@ import {
   GeneratedSurfacePlugin,
   TileCompressionPlugin,
   TilesFadePlugin,
-  UnloadTilesPlugin,
   XYZTilesOverlay,
 } from '3d-tiles-renderer/plugins';
-import {
-  GaussianSplatPlugin,
-  getSparkRendererForScene,
-} from '3d-tiles-rendererjs-3dgs-plugin';
+import { GaussianSplatPlugin } from '3d-tiles-rendererjs-3dgs-plugin';
+import { GaussianSplatRenderer } from 'gaussian-splat-lite';
 import { CameraController } from './cameraController';
 
 const SATELLITE_IMAGERY = {
   url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
   levels: 18,
 };
-
-function forceOpaqueMaterial(material) {
-  if (!material) return;
-
-  if (Array.isArray(material)) {
-    material.forEach(forceOpaqueMaterial);
-    return;
-  }
-
-  material.transparent = false;
-}
-
-function forceOpaqueScene(root) {
-  root.traverse((child) => {
-    if (child.material) {
-      forceOpaqueMaterial(child.material);
-    }
-  });
-}
 
 export function runExample({ tilesets, initial = 0 }) {
   const renderer = new WebGLRenderer({
@@ -62,6 +40,8 @@ export function runExample({ tilesets, initial = 0 }) {
 
   const scene = new Scene();
   scene.background = new Color(0xffffff);
+  const gaussianSplatRenderer = new GaussianSplatRenderer({ renderer });
+  scene.add(gaussianSplatRenderer);
 
   const renderedSplatCount = document.querySelector(
     '#rendered-splat-count',
@@ -72,7 +52,7 @@ export function runExample({ tilesets, initial = 0 }) {
   function updateRenderedSplatCount() {
     if (!renderedSplatCount) return;
 
-    const nextCount = getSparkRendererForScene(scene)?.activeSplats ?? 0;
+    const nextCount = gaussianSplatRenderer.activeSplats;
     if (nextCount !== displayedSplatCount) {
       renderedSplatCount.textContent = numberFormatter.format(nextCount);
       displayedSplatCount = nextCount;
@@ -102,12 +82,8 @@ export function runExample({ tilesets, initial = 0 }) {
   );
   imageryTiles.registerPlugin(new TilesFadePlugin());
   imageryTiles.registerPlugin(new TileCompressionPlugin());
-  imageryTiles.registerPlugin(new UnloadTilesPlugin());
   imageryTiles.setCamera(camera);
   imageryTiles.setResolutionFromRenderer(camera, renderer);
-  imageryTiles.addEventListener('load-model', ({ scene: modelScene }) => {
-    forceOpaqueScene(modelScene);
-  });
   scene.add(imageryTiles.group);
 
   const controls = new CameraController(renderer, scene, camera);
@@ -165,8 +141,7 @@ export function runExample({ tilesets, initial = 0 }) {
     }
     next.registerPlugin(new TilesFadePlugin());
     next.registerPlugin(new TileCompressionPlugin());
-    next.registerPlugin(new UnloadTilesPlugin());
-    next.registerPlugin(new GaussianSplatPlugin({ renderer, scene }));
+    next.registerPlugin(new GaussianSplatPlugin());
     next.setCamera(camera);
     next.setResolutionFromRenderer(camera, renderer);
 
@@ -175,7 +150,6 @@ export function runExample({ tilesets, initial = 0 }) {
     lruCache.maxSize = 4096;
     lruCache.minBytesSize = 0.2 * 2 ** 30;
     lruCache.maxBytesSize = 2 * 2 ** 30;
-    lruCache.unloadPercent = 0.1;
     scene.add(next.group);
 
     let framed = false;

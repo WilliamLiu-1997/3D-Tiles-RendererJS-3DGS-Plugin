@@ -1,7 +1,7 @@
 {
   "name": "3d-tiles-rendererjs-3dgs-plugin",
   "version": "0.1.16",
-  "description": "Gaussian splat tile plugin for 3d-tiles-renderer backed by Spark.",
+  "description": "Gaussian splat tile plugin for 3d-tiles-renderer backed by Gaussian Splat Lite.",
   "author": "William Liu <lyz15972107087@gmail.com>",
   "type": "module",
   "license": "Apache-2.0",
@@ -11,9 +11,12 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
+    "docs",
     "CHANGELOG.md",
+    "CONTRIBUTING.md",
     "EXT_splat_opacity.md",
     "LICENSE",
+    "migration.md",
     "README.md"
   ],
   "exports": {
@@ -23,7 +26,7 @@
     }
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20.9"
   },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean",
@@ -31,9 +34,9 @@
     "test": "npm run check",
     "start": "vite",
     "build-examples": "vite build",
-    "prepack": "npm run check && npm run build",
-    "pack:check": "npm pack --dry-run",
-    "release:check": "npm test && npm run build-examples && npm run pack:check"
+    "prepack": "npm test && npm run build",
+    "pack:check": "npm pack --dry-run && publint",
+    "release:check": "npm run build-examples && npm run pack:check"
   },
   "repository": {
     "type": "git",
@@ -43,29 +46,39 @@
   "bugs": {
     "url": "https://github.com/WilliamLiu-1997/3D-Tiles-RendererJS-3DGS-Plugin/issues"
   },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "keywords": [
     "3d-tiles",
     "3d-tiles-renderer",
     "gaussian-splatting",
     "three.js",
-    "spark",
+    "gaussian-splat-lite",
     "three",
     "3dgs",
     "ecef",
     "typescript"
   ],
   "peerDependencies": {
-    "@sparkjsdev/spark": "^2.1.0",
     "3d-tiles-renderer": "^0.5.0",
-    "three": ">=0.185.0"
+    "gaussian-splat-lite": "^0.1.7",
+    "three": ">=0.185.1"
   },
   "devDependencies": {
-    "@sparkjsdev/spark": "^2.1.0",
-    "@types/three": "^0.185.0",
+    "@types/three": "^0.185.1",
     "3d-tiles-renderer": "^0.5.0",
-    "three": "^0.185.0",
+    "gaussian-splat-lite": "^0.1.7",
+    "publint": "0.3.24",
+    "three": "^0.185.1",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
-    "vite": "^6.4.2"
+    "vite": "^6.4.3"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "esbuild@0.27.7": true,
+    "fsevents@2.3.3": true
   }
 }

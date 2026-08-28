@@ -1,11 +1,5 @@
-import {
-  ExtSplats,
-  SplatFileType,
-} from '@sparkjsdev/spark';
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import {
-  DEFAULT_TARGET_COVERAGE_BOOST_SCALE,
-  applySplatOpacityExtensionToArrays,
   collectSplatOpacityBufferIndices,
   getSplatOpacityExtensionSource,
   loadSplatOpacityExtensionData,
@@ -28,13 +22,11 @@ export type GlbData = {
 };
 
 type GaussianPrimitiveSpzSource = {
-  kind: 'spz';
   bufferViewIndex: number;
   opacityExtensionSource: SplatOpacityExtensionSource | null;
 };
 
 type GaussianPrimitiveSpzData = {
-  kind: 'spz';
   bytes: Uint8Array;
   opacityExtensionData: SplatOpacityExtensionData | null;
 };
@@ -47,10 +39,6 @@ export type GaussianSplatPrimitiveSource = {
 export type GaussianSplatPrimitiveDescriptor = {
   data: GaussianPrimitiveSpzData;
   matrix: Matrix4;
-};
-
-export type GaussianSplatMeshSource = {
-  extSplats: ExtSplats;
 };
 
 type BufferLoader = (
@@ -140,7 +128,7 @@ export async function resolveGltfBuffers(
   await Promise.all(
     uniqueIndices.map(async (index) => {
       try {
-        throwIfAborted(abortSignal);
+        abortSignal?.throwIfAborted();
 
         const bufferDefinition = bufferDefinitions[index];
         if (!bufferDefinition) {
@@ -200,7 +188,6 @@ function getGaussianPrimitiveSource(
   }
 
   return {
-    kind: 'spz',
     bufferViewIndex: compressionExtension.bufferView,
     opacityExtensionSource: getSplatOpacityExtensionSource(
       primitive,
@@ -232,7 +219,6 @@ function loadGaussianPrimitiveData(
   }
 
   return {
-    kind: 'spz' as const,
     bytes: binaryChunk.subarray(byteOffset, byteEnd),
     opacityExtensionData: loadSplatOpacityExtensionData(
       json,
@@ -276,18 +262,6 @@ export function collectGaussianBufferIndices(
     required: [...requiredBufferIndices],
     optional: [...optionalBufferIndices],
   };
-}
-
-export function createAbortError() {
-  const error = new Error('GaussianSplatPlugin: Aborted.');
-  error.name = 'AbortError';
-  return error;
-}
-
-function throwIfAborted(abortSignal?: AbortSignal) {
-  if (abortSignal?.aborted) {
-    throw createAbortError();
-  }
 }
 
 function getNodeMatrix(node: any, target: Matrix4) {
@@ -371,40 +345,4 @@ export function buildGaussianDescriptors(
     data: loadGaussianPrimitiveData(json, buffers, source.data),
     matrix: source.matrix,
   }));
-}
-
-export async function buildGaussianMeshSource(
-  descriptor: GaussianSplatPrimitiveDescriptor,
-  abortSignal?: AbortSignal,
-  targetCoverageBoostScale = DEFAULT_TARGET_COVERAGE_BOOST_SCALE,
-): Promise<GaussianSplatMeshSource> {
-  throwIfAborted(abortSignal);
-
-  const extSplats = new ExtSplats({
-    fileBytes: descriptor.data.bytes,
-    fileType: SplatFileType.SPZ,
-    construct(splats) {
-      throwIfAborted(abortSignal);
-      applySplatOpacityExtensionToArrays(
-        splats.extArrays,
-        splats.numSplats,
-        descriptor.data.opacityExtensionData,
-        targetCoverageBoostScale,
-      );
-    },
-  });
-
-  try {
-    await extSplats.initialized;
-  } catch (error) {
-    extSplats.dispose();
-    throw error;
-  }
-
-  if (abortSignal?.aborted) {
-    extSplats.dispose();
-    throw createAbortError();
-  }
-
-  return { extSplats };
 }

@@ -1,10 +1,4 @@
 export {
   GaussianSplatPlugin,
-  isGaussianSplat,
-  isGaussianSplatScene,
+  type GaussianSplatPluginOptions,
 } from './GaussianSplatPlugin';
-
-export {
-  getSparkRendererForScene,
-  updateSharedSparkRendererOptions,
-} from './SharedSparkRendererManager';

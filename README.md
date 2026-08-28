@@ -10,55 +10,42 @@
 
 </div>
 
-`3d-tiles-rendererjs-3dgs-plugin` adds Gaussian splat tile support to
-[`3d-tiles-renderer`](https://github.com/NASA-AMMOS/3DTilesRendererJS) by
-parsing glTF / GLB tile payloads that use `KHR_gaussian_splatting` with
-`KHR_gaussian_splatting_compression_spz_2`, then rendering them through
-[`@sparkjsdev/spark`](https://github.com/sparkjsdev/spark).
+Gaussian splat tile support for
+[`3d-tiles-renderer`](https://github.com/NASA-AMMOS/3DTilesRendererJS), rendered
+with [`Gaussian Splat Lite`](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite).
 
-This plugin loads 3D Tiles content; it does not load raw `.ply` splat files
-directly. To generate 3D tiles from PLY-format 3D Gaussian Splatting
-data, use
-[`3DGS-PLY-3DTiles-Converter`](https://github.com/WilliamLiu-1997/3DGS-PLY-3DTiles-Converter).
+The plugin loads glTF/GLB tile payloads that use `KHR_gaussian_splatting` with
+`KHR_gaussian_splatting_compression_spz_2`. It supports explicit and implicit
+3D Tiles, tile disposal and memory accounting, large GIS/ECEF coordinates, and
+`TilesFadePlugin` transitions.
 
-The package is designed for `three.js` applications that already use
-`TilesRenderer` and want streamed Gaussian splat content to behave like normal
-tile content, including tile disposal, byte accounting, and fade plugin
-compatibility.
+> Convert standalone `.ply` files to 3D Tiles with
+> [`3DGS-PLY-3DTiles-Converter`](https://github.com/WilliamLiu-1997/3DGS-PLY-3DTiles-Converter).
 
-## Features
-
-- Supports both explicit and implicit 3D Tiles tiling schemes
-- Supports `gltf` and `glb` tile payloads containing compressed Gaussian splats
-- Builds `SplatMesh` instances from SPZ-compressed primitive data
-- Supports legacy v1 and converter v2 `EXT_splat_opacity` payloads
-- Shares one Spark renderer per scene / WebGLRenderer pair
-- Accepts `sparkRendererOptions` to forward a supported subset of Spark renderer settings
-- Re-bases splat rendering around the active camera to reduce large-world
-  precision issues
-- Tracks extra GPU / buffer memory through `calculateBytesUsed`
-- Preserves opacity updates from tile fade transitions
+> [!IMPORTANT]
+> **Upgrading from 0.1.x to 0.2.x?**
+> Follow the [0.1.x to 0.2.x migration guide](migration.md) before updating.
 
 ## Requirements
 
-The package peer dependency ranges are:
-
-- `three@>=0.185.0`
+- `three@>=0.185.1`
 - `3d-tiles-renderer@^0.5.0`
-- `@sparkjsdev/spark@^2.1.0`
+- `gaussian-splat-lite@^0.1.7`
+- A modern browser with WebGL2, WebAssembly, Web Workers, and ES modules
 
 ## Installation
 
 ```bash
-npm install 3d-tiles-rendererjs-3dgs-plugin three 3d-tiles-renderer @sparkjsdev/spark
+npm install 3d-tiles-rendererjs-3dgs-plugin three 3d-tiles-renderer gaussian-splat-lite
 ```
 
-## Usage
+## Quick start
 
 ```ts
 import { Scene, PerspectiveCamera, WebGLRenderer } from 'three';
 import { TilesRenderer } from '3d-tiles-renderer';
 import { TilesFadePlugin } from '3d-tiles-renderer/plugins';
+import { GaussianSplatRenderer } from 'gaussian-splat-lite';
 import { GaussianSplatPlugin } from '3d-tiles-rendererjs-3dgs-plugin';
 
 const renderer = new WebGLRenderer({ antialias: false });
@@ -73,399 +60,106 @@ const camera = new PerspectiveCamera(
 const tiles = new TilesRenderer('https://example.com/tileset.json');
 tiles.setCamera(camera);
 tiles.setResolutionFromRenderer(camera, renderer);
+// The application owns one scene-level Gaussian renderer.
+const splatRenderer = new GaussianSplatRenderer({ renderer });
+scene.add(splatRenderer);
 tiles.registerPlugin(new TilesFadePlugin());
-tiles.registerPlugin(
-  new GaussianSplatPlugin({
-    renderer,
-    scene,
-    minRaycastOpacity: 0.1,
-    // Optional: maximum converter coverage boost retained by v2 content.
-    targetCoverageBoostScale: 0.1,
-    sparkRendererOptions: {
-      // Optional: the plugin already defaults this to 2.
-      focalAdjustment: 2,
-    },
-  }),
-);
+tiles.registerPlugin(new GaussianSplatPlugin());
 
 scene.add(tiles.group);
 
-function frame() {
+renderer.setAnimationLoop(() => {
   tiles.update();
   renderer.render(scene, camera);
-  requestAnimationFrame(frame);
-}
-
-frame();
+});
 ```
 
 ## WebXR / VR
 
 The Gaussian splat renderer is WebXR-aware when `renderer.xr.isPresenting`.
-For a pure WebXR render loop, use the same session-switching pattern as the
-upstream
-[3D Tiles Renderer VR example](https://github.com/NASA-AMMOS/3DTilesRendererJS/blob/master/example/three/vr.js):
-register the normal camera outside XR, switch `TilesRenderer` to Three.js' XR
-`ArrayCamera` when an XR session starts, and switch back when the session ends.
+WebXR applications must switch `TilesRenderer` between the normal camera and
+Three.js' XR `ArrayCamera` as sessions start and end. See the
+[WebXR / VR integration guide](docs/webxr.md) for the complete setup.
 
-```js
-import { Scheduler } from '3d-tiles-renderer';
-import { VRButton } from 'three/addons/webxr/VRButton.js';
+## Gaussian Splat Lite renderer
 
-tiles.setCamera(camera);
-tiles.setResolutionFromRenderer(camera, renderer);
-
-renderer.xr.enabled = true;
-document.body.appendChild(VRButton.createButton(renderer));
-
-let xrSession = null;
-
-function clearTilesCameras() {
-  for (const registeredCamera of [...tiles.cameras]) {
-    tiles.deleteCamera(registeredCamera);
-  }
-}
-
-function syncTilesCameraForXR() {
-  if (renderer.xr.isPresenting) {
-    camera.updateMatrixWorld();
-    renderer.xr.updateCamera(camera);
-
-    const xrCamera = renderer.xr.getCamera();
-
-    if (xrSession === null) {
-      clearTilesCameras();
-      tiles.setCamera(xrCamera);
-
-      xrSession = renderer.xr.getSession();
-      Scheduler.setXRSession(xrSession);
-    }
-
-    const firstViewCamera = xrCamera.cameras[0];
-    if (firstViewCamera) {
-      tiles.setResolution(
-        xrCamera,
-        firstViewCamera.viewport.z,
-        firstViewCamera.viewport.w,
-      );
-    }
-  } else if (xrSession !== null) {
-    clearTilesCameras();
-    tiles.setCamera(camera);
-    tiles.setResolutionFromRenderer(camera, renderer);
-
-    xrSession = null;
-    Scheduler.setXRSession(null);
-  }
-}
-
-renderer.setAnimationLoop(() => {
-  syncTilesCameraForXR();
-  tiles.update();
-  renderer.render(scene, camera);
-});
-```
-
-The important ordering is `camera.updateMatrixWorld()` before
-`renderer.xr.updateCamera(camera)`, and `syncTilesCameraForXR()` before
-`tiles.update()`. That makes tile visibility and LOD use the headset camera
-during XR. Re-run `tiles.setResolutionFromRenderer(camera, renderer)` from your
-resize handler when the canvas size changes. For AR placement and hit testing,
-use an AR-specific flow such as the
-[Three.js AR hit-test example](https://threejs.org/examples/#webxr_ar_hittest)
-in addition to this 3D Tiles camera/session pattern. AR applications still need
-application-level reference-space alignment, anchors, real-world depth, and
-occlusion handling.
-
-## Spark Renderer Options
-
-`GaussianSplatPlugin` accepts an optional `sparkRendererOptions` object on the
-constructor host:
+`GaussianSplatPlugin` does not create, configure, or dispose a
+`GaussianSplatRenderer`. Create one, retain its reference, and add it directly
+to the scene before rendering:
 
 ```ts
-new GaussianSplatPlugin({
+const gaussianSplatRenderer = new GaussianSplatRenderer({
   renderer,
-  scene,
-  sparkRendererOptions: {
-    focalAdjustment: 2,
-    blurAmount: 0.15,
-  },
+  focalAdjustment: 2,
+  blurAmount: 0.15,
 });
+scene.add(gaussianSplatRenderer);
+
+tiles.registerPlugin(new GaussianSplatPlugin());
 ```
 
-Supported keys are `premultipliedAlpha`, `maxStdDev`, `minPixelRadius`,
-`maxPixelRadius`, `minAlpha`, `enable2DGS`, `preBlurAmount`, `blurAmount`,
-`clipXY`, `focalAdjustment`, `sortRadial`, `minSortIntervalMs`, `depthTest`,
-and `depthWrite`.
+The plugin does not validate that the renderer exists. Without one, tile
+`SplatMesh` instances still load but are not drawn. Pass render settings such as
+`blurAmount`, `focalAdjustment`, `depthTest`, and `depthWrite` directly to
+Gaussian Splat Lite, not to this plugin.
 
-Unspecified options use Spark defaults, except this plugin keeps
-`focalAdjustment: 2` as its own default.
+For the complete list of options, defaults, runtime properties, and on-demand
+rendering setup, see the
+[`GaussianSplatRenderer` settings page](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/blob/main/docs/GaussianSplatRenderer.md).
 
-Because one Spark renderer is shared per `scene` / `WebGLRenderer` pair,
-explicit `sparkRendererOptions` from later `GaussianSplatPlugin` instances are
-merged into that existing shared renderer. Omitted keys do not reset previously
-applied values, and changed explicit values log a warning so shared-state
-updates remain visible.
+## Supported content
 
-To update options on an existing shared Spark renderer at runtime, call
-`updateSharedSparkRendererOptions` with the scene and options:
-
-```ts
-import { updateSharedSparkRendererOptions } from '3d-tiles-rendererjs-3dgs-plugin';
-
-updateSharedSparkRendererOptions(scene, {
-  blurAmount: 0.2,
-});
-```
-
-Omitted keys keep their current values.
-
-## Rendering Note
-
-When compositing Gaussian splats with an ellipsoid globe or imagery tiles, keep
-the globe in the opaque render path whenever possible.
-
-Spark splats render as transparent, depth-tested geometry. If the globe is also
-rendered as transparent tile meshes, then both systems end up in Three.js'
-transparent queue, where sorting is primarily object-level instead of
-per-pixel. At grazing / horizon views this can make the globe appear to occlude
-an entire splat set at once.
-
-To avoid that artifact:
-
-- Prefer globe materials with `transparent = false` and `depthWrite = true`
-- Or use separate render passes for the globe and splats if the globe must stay transparent
-
-Using a separate render pass for the splats is also a valid approach when you
-need to keep the globe in a transparent pipeline.
-
-For example, the demo forces each imagery tile back into the opaque pass when
-it loads:
-
-```ts
-const imageryOverlay = new XYZTilesOverlay({
-  levels: 18,
-  url: '...',
-});
-
-const imageryTiles = new TilesRenderer();
-imageryTiles.registerPlugin(
-  new GeneratedSurfacePlugin({
-    overlay: imageryOverlay,
-    shape: 'ellipsoid',
-    center: true,
-    applyOverlayTexture: true,
-  }),
-);
-
-imageryTiles.addEventListener('load-model', ({ scene: modelScene }) => {
-  modelScene.traverse((child) => {
-    if (!child.material) return;
-
-    const materials = Array.isArray(child.material)
-      ? child.material
-      : [child.material];
-
-    for (const material of materials) {
-      material.transparent = false;
-    }
-  });
-});
-```
-
-If you prefer explicit pass ordering instead, split the globe and splats into
-different scenes and render them sequentially without clearing depth between
-passes:
-
-```ts
-const globeScene = new Scene();
-const splatScene = new Scene();
-
-const imageryTiles = new TilesRenderer(
-  'https://example.com/imagery/tileset.json',
-);
-imageryTiles.setCamera(camera);
-imageryTiles.setResolutionFromRenderer(camera, renderer);
-
-const imageryOverlay = new XYZTilesOverlay({
-  levels: 18,
-  url: '...',
-});
-imageryTiles.registerPlugin(
-  new GeneratedSurfacePlugin({
-    overlay: imageryOverlay,
-    shape: 'ellipsoid',
-    center: true,
-    applyOverlayTexture: true,
-  }),
-);
-globeScene.add(imageryTiles.group);
-
-const splatTiles = new TilesRenderer('https://example.com/splats/tileset.json');
-splatTiles.setCamera(camera);
-splatTiles.setResolutionFromRenderer(camera, renderer);
-splatTiles.registerPlugin(new TilesFadePlugin());
-splatTiles.registerPlugin(
-  new GaussianSplatPlugin({ renderer, scene: splatScene }),
-);
-splatScene.add(splatTiles.group);
-
-renderer.autoClear = false;
-
-function frame() {
-  imageryTiles.update();
-  splatTiles.update();
-
-  renderer.clear();
-  renderer.render(globeScene, camera);
-  renderer.render(splatScene, camera);
-
-  requestAnimationFrame(frame);
-}
-
-frame();
-```
-
-This keeps the globe and splats out of the same transparent sort queue while
-still letting the globe depth buffer occlude splats behind the horizon.
-
-## Supported Content
-
-This plugin supports both explicit and implicit tiling tilesets, but it only
-intercepts tile payloads when all of the following are true:
+A tile is handled when:
 
 - The tile content is `gltf` or `glb`
 - The glTF scene contains `KHR_gaussian_splatting`
 - Each Gaussian primitive uses `KHR_gaussian_splatting_compression_spz_2`
 
-`KHR_gaussian_splatting_compression_spz_2` is the only supported Gaussian
-compression path at the moment. Raw, uncompressed Gaussian primitives and other
-compression schemes are rejected intentionally.
-
-Tiles may also include the draft `EXT_splat_opacity` extension:
-
-- Legacy v1 supplies display-ready Spark opacity in a `FLOAT / SCALAR`
-  accessor.
-- Version 2 supplies binary16 source opacity, the pre-boost shape ratio, and
-  the converter's `opacity_anisotropic_v1` coverage strength. The plugin uses
-  this metadata to reduce the converter boost to at most the configured
-  `targetCoverageBoostScale` (default `0.1`), compensates opacity for the
-  retained two-axis area growth, then writes the result using Spark's native
-  high-opacity encoding. This processing applies only when the extension's
-  source opacity is greater than `1`; other splats retain their SPZ-decoded
-  scale and opacity.
-
-Converter-authored v2 data is interleaved in the existing GLB buffer. The plugin
-reads it without another request, payload copy, or deinterleave, then applies it
-in one pass before Spark creates its textures. Unknown metadata and malformed or
-unavailable accessors leave the complete decoded SPZ opacity and boosted scales
-unchanged. An invalid individual value leaves only that splat at the same SPZ
-fallback. See [`EXT_splat_opacity.md`](EXT_splat_opacity.md) for the complete
-binary layout, restoration formula, and fallback contract.
+Raw, uncompressed Gaussian primitives and other compression schemes are not
+supported. Tiles may also use `EXT_splat_opacity` v1 or v2; see
+[`EXT_splat_opacity.md`](EXT_splat_opacity.md) for its binary layout, processing
+rules, and fallback behavior.
 
 ## API
 
-### `new GaussianSplatPlugin(host)`
+```ts
+new GaussianSplatPlugin({
+  minRaycastOpacity: 0.05,
+  targetCoverageBoostScale: 0.1,
+});
+```
 
-Creates a tile parser plugin.
+| Option | Default | Description |
+| --- | --- | --- |
+| `minRaycastOpacity` | Gaussian Splat Lite default (`0.05`) | Per-splat kernel-alpha threshold that clips the raycast hit area. |
+| `targetCoverageBoostScale` | `0.1` | Maximum converter coverage boost retained for `EXT_splat_opacity` v2. Use `0` to remove it. |
 
-`host` must contain:
-
-- `renderer: WebGLRenderer`
-- `scene: Scene`
-- `minRaycastOpacity?: number`
-- `sparkRendererOptions?: supported Spark renderer option subset`
-- `targetCoverageBoostScale?: number`
-
-`minRaycastOpacity` is forwarded to each Spark `SplatMesh` created by the
-plugin. It defaults to `0.1`.
-
-`targetCoverageBoostScale` is the maximum converter coverage boost retained
-when reading `EXT_splat_opacity` version 2. It defaults to `0.1`; use `0` to
-remove the recorded boost completely. A file whose recorded boost is lower
-than the configured target is left at that lower value rather than boosted.
-
-The same `scene` and `renderer` pair must stay in a strict 1:1:1 relationship
-with the shared Spark renderer manager used by the plugin. If multiple plugin
-instances reuse that pair, they also reuse the same Spark renderer and merge
-their explicit `sparkRendererOptions` into it.
-
-### `isGaussianSplat(object)`
-
-Type guard for Spark `SplatMesh` nodes created by this plugin.
-
-### `isGaussianSplatScene(object)`
-
-Type guard for the `Group` wrapper that owns one parsed Gaussian tile scene.
-
-### `getSparkRendererForScene(scene)`
-
-Returns the shared Spark renderer currently attached to a scene, or `null` if
-the plugin has not initialized one for that scene or it has already been
-disposed. The returned renderer is owned by the plugin.
-
-### `updateSharedSparkRendererOptions(scene, options)`
-
-Applies explicit supported `sparkRendererOptions` to the existing shared Spark
-renderer for `scene`. This is intended for runtime UI controls or other
-configuration changes after the plugin has initialized. It does nothing if no
-shared renderer exists for the scene.
-
-## Public Exports
+Public exports:
 
 ```ts
 import {
   GaussianSplatPlugin,
-  getSparkRendererForScene,
-  isGaussianSplat,
-  isGaussianSplatScene,
-  updateSharedSparkRendererOptions,
+  type GaussianSplatPluginOptions,
 } from '3d-tiles-rendererjs-3dgs-plugin';
 ```
 
-## Development
+## Example and development
 
-```bash
-npm install
-npm run check
-npm run build
-```
+The [`examples/`](examples/) demo includes explicit and implicit sample
+tilesets, a globe, tileset switching, and LOD controls. Development requires
+Node.js 20.9 or newer.
 
-## Examples
-
-Two sample tilesets live under [data/](data/) — `gaussianSplat1`
-and `gaussianSplat2`. Both are wired into a single demo page
-at [examples/index.html](examples/index.html) that uses
-[`lil-gui`](https://lil-gui.georgealways.com/) to switch between them at runtime
-and to recentre the camera on the current tileset.
-
-The sample data in [data/](data/) was converted from PLY-format 3D Gaussian
+The sample data in [`data/`](data/) was converted from PLY-format 3D Gaussian
 Splatting files with
 [`3DGS-PLY-3DTiles-Converter`](https://github.com/WilliamLiu-1997/3DGS-PLY-3DTiles-Converter).
 
-The page composes the splat tileset on top of an ArcGIS World Imagery globe
-served through `GeneratedSurfacePlugin` and `XYZTilesOverlay` so the Gaussian
-content sits in a real ECEF frame. A custom `CameraController` ([examples/shared/cameraController.js](examples/shared/cameraController.js))
-drives orbit / pan / zoom using raycasts against the scene and the WGS84
-ellipsoid, with inertial damping.
-
-Controls:
-
-- Left-drag: orbit
-- Right-drag (or Shift + left-drag): pan
-- Scroll: zoom
-- GUI `Tileset` dropdown: swap the active tileset
-- GUI `Error target` slider: adjust level of detail on a logarithmic 4–64 scale
-- GUI `Move to tileset` button: frame the camera on the current tileset
-
 ```bash
-npm start               # dev server with HMR, opens examples/index.html
-npm run build-examples  # bundle the demo to examples/bundle/
+npm install
+npm start               # Run the demo with Vite
+npm run check           # Type-check the package
+npm run build           # Build the npm package
+npm run build-examples  # Build the static demo
 ```
-
-`build-examples` emits a self-contained static site (HTML + JS + the two
-datasets) in `examples/bundle/`. Serve that directory with any static file
-server to view the demo.
 
 ## License
 

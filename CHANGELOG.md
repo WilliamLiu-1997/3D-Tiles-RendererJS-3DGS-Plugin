@@ -7,6 +7,53 @@ Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Added a 0.1.x to 0.2.x migration guide covering the backend, API, ownership,
+  and default-value changes.
+
+### Changed
+
+- Replaced `@sparkjsdev/spark` with `gaussian-splat-lite@0.1.7` for native
+  large-coordinate precision, faster sorting, and faster, more accurate
+  raycasting while retaining similar CPU and GPU memory usage; raised the
+  Three.js peer requirement to `>=0.185.1`.
+- Applications now create, configure, attach, and dispose their own scene-level
+  `GaussianSplatRenderer`. The plugin constructor only accepts optional
+  `GaussianSplatPluginOptions`.
+- Splat tiles now create Gaussian Splat Lite `SplatMesh` instances directly
+  from SPZ bytes and use the library's built-in camera-relative rendering.
+- `EXT_splat_opacity` v1/v2 conversion now runs as a serializable `postDecode`
+  expression in the SPZ decode worker and passes semantic opacity in the
+  `[0, 1000]` range to Gaussian Splat Lite.
+- `TilesFadePlugin` integration now combines `fadeIn` and `fadeOut` coverage at
+  render time without modifying decoded source opacity.
+- `minRaycastOpacity` now uses the Gaussian Splat Lite default when omitted.
+- Raycasting now uses Gaussian Splat Lite's kernel-alpha isosurface, so
+  `minRaycastOpacity` also controls each splat's hit area rather than only
+  filtering splats by their decoded peak opacity.
+- Plugin-owned mesh tracking and byte accounting are now private, so
+  application-created `SplatMesh` objects are neither counted nor disposed as
+  tile content.
+- Simplified the examples and updated documentation and issue templates for the
+  Gaussian Splat Lite backend.
+
+### Removed
+
+- Removed the shared Spark renderer manager, automatic renderer creation, and
+  the `renderer`, `scene`, and renderer-option constructor fields.
+- Removed the public renderer lookup/update helpers and the `isGaussianSplat`
+  and `isGaussianSplatScene` guards.
+- Removed the plugin-local opacity WASM/preload pipeline, Rust build, and
+  main-thread decoded-array processing.
+- Removed redundant `UnloadTilesPlugin` and `unloadPercent` example setup.
+
+### Fixed
+
+- Ignored macOS AppleDouble HTML metadata files when collecting Vite example
+  entry points.
+- Deduplicated Three.js in the Vite example build.
+
 ## [0.1.16] - 2026-08-06
 
 ### Added
