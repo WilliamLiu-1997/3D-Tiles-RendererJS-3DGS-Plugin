@@ -7,6 +7,21 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-31
+
+### Changed
+
+- Raised the minimum `gaussian-splat-lite` version to `0.1.13` so nested
+  opacity post-decode guards short-circuit before output-only worker work.
+- Reduced `EXT_splat_opacity` post-decode worker programs when the retained
+  coverage boost is zero.
+
+### Fixed
+
+- Processed finite version 2 source opacity above `1000` according to the
+  extension's capped boost formula, and kept the SPZ fallback for values or
+  coverage strengths that cannot be represented safely by post-decode.
+
 ## [0.2.1] - 2026-08-28
 
 ### Fixed

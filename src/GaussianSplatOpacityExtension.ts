@@ -11,9 +11,11 @@ const GL_UNSIGNED_SHORT = 5123;
 const GL_FLOAT = 5126;
 const UNSIGNED_SHORT_BYTE_SIZE = 2;
 const FLOAT_BYTE_SIZE = 4;
+const FLOAT16_MAX = 65504;
 const MAX_COVERAGE_BOOST_OPACITY = 1000;
-const MAX_POST_DECODE_COVERAGE_BOOST_SCALE =
-  3.4028234663852886e38 / (Math.sqrt(MAX_COVERAGE_BOOST_OPACITY) - 1);
+const MAX_SAFE_POST_DECODE_COVERAGE_BOOST_SCALE =
+  Math.sqrt(3.4028234663852886e38 / 2) /
+  (Math.sqrt(MAX_COVERAGE_BOOST_OPACITY) - 1);
 export const DEFAULT_TARGET_COVERAGE_BOOST_SCALE = 0.1;
 
 type GaussianBufferCollection = ReadonlyArray<Uint8Array | undefined>;
@@ -464,6 +466,20 @@ export function createSplatOpacityPostDecode(
     data.coverageBoostScale,
     targetCoverageBoostScale,
   );
+  // postDecode constants are float32. If the file strength cannot be encoded,
+  // keep the complete SPZ fallback instead of failing the optional extension.
+  const fileCoverageBoostScale = Math.fround(data.coverageBoostScale);
+  const targetCoverageBoostScaleFloat = Math.fround(
+    retainedCoverageBoostScale,
+  );
+  if (
+    !Number.isFinite(fileCoverageBoostScale) ||
+    targetCoverageBoostScaleFloat >
+      MAX_SAFE_POST_DECODE_COVERAGE_BOOST_SCALE
+  ) {
+    return undefined;
+  }
+
   const count = Math.min(
     data.sourceOpacitySource.count,
     data.coverageBoostRatioSource.count,
@@ -471,14 +487,12 @@ export function createSplatOpacityPostDecode(
   if (count === 0) {
     return undefined;
   }
-  if (
-    data.coverageBoostScale > MAX_POST_DECODE_COVERAGE_BOOST_SCALE
-  ) {
-    throw new Error(
-      'GaussianSplatPlugin: Coverage boost scale exceeds the postDecode expression range.',
-    );
-  }
 
+  const hasTargetCoverageBoost = targetCoverageBoostScaleFloat !== 0;
+  const retargetsCoverageBoost =
+    targetCoverageBoostScaleFloat !== fileCoverageBoostScale;
+
+  // Attribute reads and per-splat arithmetic execute in the decode worker.
   return postDecode.define(({ splat, attribute, op }) => {
     const sourceOpacity = attribute({
       data: data.sourceOpacitySource.dataView,
@@ -486,30 +500,40 @@ export function createSplatOpacityPostDecode(
       count,
       byteStride: data.sourceOpacitySource.byteStride,
     });
+    const sourceOpacityIsActive = op.and(
+      op.gt(sourceOpacity, 1),
+      op.lte(sourceOpacity, FLOAT16_MAX),
+    );
+
+    if (!hasTargetCoverageBoost && !retargetsCoverageBoost) {
+      return {
+        when: sourceOpacityIsActive,
+        opacity: sourceOpacity,
+      };
+    }
 
     const opacityFactor = op.sub(
       op.sqrt(op.min(sourceOpacity, MAX_COVERAGE_BOOST_OPACITY)),
       1,
     );
-    const targetBoost = op.mul(retainedCoverageBoostScale, opacityFactor);
-    const targetRest = op.add(1, targetBoost);
-    const rawDisplayOpacity = op.div(
-      sourceOpacity,
-      op.mul(targetRest, targetRest),
-    );
-    const active = op.and(
-      op.gt(sourceOpacity, 1),
-      op.lte(sourceOpacity, MAX_COVERAGE_BOOST_OPACITY),
-    );
+    const targetBoost = hasTargetCoverageBoost
+      ? op.mul(targetCoverageBoostScaleFloat, opacityFactor)
+      : 0;
+    const targetRest = hasTargetCoverageBoost
+      ? op.add(1, targetBoost)
+      : 1;
+    const targetArea = hasTargetCoverageBoost
+      ? op.mul(targetRest, targetRest)
+      : 1;
+    const rawDisplayOpacity = hasTargetCoverageBoost
+      ? op.div(sourceOpacity, targetArea)
+      : sourceOpacity;
 
     const patch = {
-      when: active,
+      when: sourceOpacityIsActive,
       opacity: rawDisplayOpacity,
     };
-    if (
-      Math.fround(retainedCoverageBoostScale) ===
-      Math.fround(data.coverageBoostScale)
-    ) {
+    if (!retargetsCoverageBoost) {
       return patch;
     }
 
@@ -519,7 +543,7 @@ export function createSplatOpacityPostDecode(
       count,
       byteStride: data.coverageBoostRatioSource.byteStride,
     });
-    const fileBoost = op.mul(data.coverageBoostScale, opacityFactor);
+    const fileBoost = op.mul(fileCoverageBoostScale, opacityFactor);
     const fileRest = op.add(1, fileBoost);
     const restScaleMultiplier = op.div(targetRest, fileRest);
     const ratioFactor = op.div(
@@ -530,7 +554,9 @@ export function createSplatOpacityPostDecode(
       ),
     );
     const fileTop = op.add(1, op.mul(fileBoost, ratioFactor));
-    const targetTop = op.add(1, op.mul(targetBoost, ratioFactor));
+    const targetTop = hasTargetCoverageBoost
+      ? op.add(1, op.mul(targetBoost, ratioFactor))
+      : 1;
     const topScaleMultiplier = op.div(targetTop, fileTop);
 
     const largestAxis = op.maxComponentIndex(splat.scale);
@@ -554,13 +580,15 @@ export function createSplatOpacityPostDecode(
         ),
       ),
     );
-    const scaleIsValid = op.isFinite(
-      op.div(updatedScale, op.sqrt(updatedScale)),
-    );
+    // GSL decodes linear scales with exp(), and every multiplier above is
+    // non-negative. Self-division therefore accepts exactly the positive,
+    // finite updates while rejecting zero, infinity, and NaN without a vec3
+    // sqrt pass.
+    const scaleIsValid = op.isFinite(op.div(updatedScale, updatedScale));
 
     return {
       ...patch,
-      when: op.and(active, scaleIsValid),
+      when: op.and(sourceOpacityIsActive, scaleIsValid),
       scale: updatedScale,
     };
   });
