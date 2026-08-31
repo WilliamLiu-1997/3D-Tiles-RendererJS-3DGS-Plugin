@@ -30,7 +30,7 @@ The plugin loads glTF/GLB tile payloads that use `KHR_gaussian_splatting` with
 
 - `three@>=0.185.1`
 - `3d-tiles-renderer@^0.5.0`
-- `gaussian-splat-lite@^0.1.7`
+- `gaussian-splat-lite@^0.1.13`
 - A modern browser with WebGL2, WebAssembly, Web Workers, and ES modules
 
 ## Installation
