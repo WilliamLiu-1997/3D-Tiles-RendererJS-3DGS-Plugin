@@ -114,7 +114,7 @@ All settings previously accepted in `sparkRendererOptions` are available on
 
 - `premultipliedAlpha`
 - `maxStdDev`, `minPixelRadius`, `maxPixelRadius`, and `minAlpha`
-- `enable2DGS`, `preBlurAmount`, `blurAmount`, and `clipXY`
+- `preBlurAmount`, `blurAmount`, and `clipXY`
 - `focalAdjustment`, `sortRadial`, and `minSortIntervalMs`
 - `depthTest` and `depthWrite`
 
