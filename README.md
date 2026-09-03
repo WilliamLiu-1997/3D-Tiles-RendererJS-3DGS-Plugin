@@ -19,9 +19,6 @@ The plugin loads glTF/GLB tile payloads that use `KHR_gaussian_splatting` with
 3D Tiles, tile disposal and memory accounting, large GIS/ECEF coordinates, and
 `TilesFadePlugin` transitions.
 
-> Convert standalone `.ply` files to 3D Tiles with
-> [`3DGS-PLY-3DTiles-Converter`](https://github.com/WilliamLiu-1997/3DGS-PLY-3DTiles-Converter).
-
 > [!IMPORTANT]
 > **Upgrading from 0.1.x to 0.2.x?**
 > Follow the [0.1.x to 0.2.x migration guide](migration.md) before updating.
