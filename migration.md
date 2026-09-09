@@ -1,5 +1,9 @@
 # Migrating from 0.1.x to 0.2.x
 
+This guide documents the original 0.2 migration. When upgrading to 0.3.x,
+also follow the [GSL 1.0 / WebGPU migration guide](docs/migration-0.3.md) for
+current dependency requirements and defaults.
+
 Version 0.2 replaces the Spark rendering backend with
 [`gaussian-splat-lite`](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite)
 and makes the application responsible for the scene-level Gaussian renderer.
@@ -161,7 +165,8 @@ Plugin-owned mesh tracking is now private. Do not depend on the old
 ## Review raycast behavior
 
 When `minRaycastOpacity` was omitted, 0.1.x used `0.1`. In 0.2.x, omission
-uses the Gaussian Splat Lite default of `0.05`.
+uses the installed Gaussian Splat Lite default: `0.05` in the original 0.2
+release's GSL dependency, increased to `0.1` in GSL 0.1.16.
 
 The threshold's behavior also changed with the backend:
 

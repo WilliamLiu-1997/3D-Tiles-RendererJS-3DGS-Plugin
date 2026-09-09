@@ -1,6 +1,13 @@
 # WebXR / VR
 
 The Gaussian splat renderer is WebXR-aware when `renderer.xr.isPresenting`.
+The integration below applies to `WebGLRenderer` and an initialized
+`WebGPURenderer`, subject to browser/device support for the chosen backend
+and XR session. Initialize `WebGPURenderer` with `await renderer.init()` before
+creating `GaussianSplatRenderer`. GSL's `autoStochastic` mode is disabled in
+XR; manual stochastic rendering is available through its
+[renderer API](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/blob/v1.0.0/docs/GaussianSplatRenderer.md#webxr).
+
 For a pure WebXR render loop, use the same session-switching pattern as the
 upstream
 [3D Tiles Renderer VR example](https://github.com/NASA-AMMOS/3DTilesRendererJS/blob/master/example/three/vr.js):
@@ -8,11 +15,13 @@ register the normal camera outside XR, switch `TilesRenderer` to Three.js' XR
 `ArrayCamera` when an XR session starts, and switch back when the session ends.
 
 ```js
+import { Vector2 } from 'three';
 import { Scheduler } from '3d-tiles-renderer';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
 
 tiles.setCamera(camera);
-tiles.setResolutionFromRenderer(camera, renderer);
+const size = new Vector2();
+tiles.setResolution(camera, renderer.getSize(size));
 
 renderer.xr.enabled = true;
 document.body.appendChild(VRButton.createButton(renderer));
@@ -51,7 +60,7 @@ function syncTilesCameraForXR() {
   } else if (xrSession !== null) {
     clearTilesCameras();
     tiles.setCamera(camera);
-    tiles.setResolutionFromRenderer(camera, renderer);
+    tiles.setResolution(camera, renderer.getSize(size));
 
     xrSession = null;
     Scheduler.setXRSession(null);
@@ -68,7 +77,7 @@ renderer.setAnimationLoop(() => {
 The important ordering is `camera.updateMatrixWorld()` before
 `renderer.xr.updateCamera(camera)`, and `syncTilesCameraForXR()` before
 `tiles.update()`. That makes tile visibility and LOD use the headset camera
-during XR. Re-run `tiles.setResolutionFromRenderer(camera, renderer)` from your
+during XR. Re-run `tiles.setResolution(camera, renderer.getSize(size))` from your
 resize handler when the canvas size changes.
 
 For AR placement and hit testing, use an AR-specific flow such as the

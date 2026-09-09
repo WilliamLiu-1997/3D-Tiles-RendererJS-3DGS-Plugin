@@ -7,6 +7,29 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-09
+
+### Added
+
+- Support for native WebGPU, `WebGPURenderer`'s forced or automatic WebGL2
+  backend, and the existing `WebGLRenderer` path through Gaussian Splat Lite 1.0.
+- WebGPU and WebGL2 quick-start instructions and a 0.2.x to 0.3.x migration
+  guide covering renderer initialization, appearance, sorting, and picking.
+
+### Changed
+
+- Updated the `gaussian-splat-lite` peer and development dependency to
+  `^1.0.0` and raised the Three.js minimum to `0.186.0`.
+- Inherited GSL 1.0 defaults, including `preBlurAmount: 0.3`, `blurAmount: 0`,
+  screen-pixel `minPixelRadius`, and `minRaycastOpacity: 0.15` when omitted.
+  The plugin constructor and supported tile formats are unchanged.
+- Updated camera-resolution examples to work with both renderer types and
+  documented WebGPU initialization in the WebXR guide.
+
+### Fixed
+
+- Corrected the repository URLs used by the README CI badge and header image.
+
 ## [0.2.2] - 2026-08-31
 
 ### Changed
