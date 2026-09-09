@@ -72,7 +72,6 @@ tiles.registerPlugin(
       focalAdjustment: 2,
       blurAmount: 0.15,
       depthTest: true,
-      depthWrite: false,
     },
   }),
 );
@@ -90,7 +89,6 @@ const splatRenderer = new GaussianSplatRenderer({
   focalAdjustment: 2,
   blurAmount: 0.15,
   depthTest: true,
-  depthWrite: false,
 });
 scene.add(splatRenderer);
 
@@ -119,7 +117,7 @@ All settings previously accepted in `sparkRendererOptions` are available on
 - `maxStdDev`, `minPixelRadius`, `maxPixelRadius`, and `minAlpha`
 - `preBlurAmount`, `blurAmount`, and `clipXY`
 - `focalAdjustment`, `sortRadial`, and `minSortIntervalMs`
-- `depthTest` and `depthWrite`
+- `depthTest`
 
 Pass them directly to `new GaussianSplatRenderer(...)`. Gaussian Splat Lite
 also provides additional options such as `onDirty`, `autoUpdate`,
@@ -133,12 +131,10 @@ Runtime updates no longer go through the plugin:
 // 0.1.x
 updateSharedSparkRendererOptions(scene, {
   blurAmount: 0.2,
-  depthWrite: true,
 });
 
 // 0.2.x
 splatRenderer.blurAmount = 0.2;
-splatRenderer.depthWrite = true;
 ```
 
 For an on-demand render loop, provide `onDirty` to
