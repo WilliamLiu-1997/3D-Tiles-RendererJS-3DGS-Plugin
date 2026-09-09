@@ -195,7 +195,7 @@ new GaussianSplatPlugin({
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `minRaycastOpacity` | Gaussian Splat Lite default (`0.15` in GSL 1.0) | Per-splat kernel-alpha threshold that clips the raycast hit area. Set an explicit value to keep picking behavior stable across GSL upgrades. |
+| `minRaycastOpacity` | Gaussian Splat Lite default (`0.15` in GSL 1.0) | Per-splat kernel-alpha threshold that clips the raycast hit area. Set an explicit value to preserve this threshold across GSL upgrades. |
 | `targetCoverageBoostScale` | `0.1` | Maximum converter coverage boost retained for `EXT_splat_opacity` v2. Use `0` to remove it. |
 
 Public exports:
