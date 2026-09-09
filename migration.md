@@ -7,8 +7,7 @@ current dependency requirements and defaults.
 Version 0.2 replaces the Spark rendering backend with
 [`gaussian-splat-lite`](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite)
 and makes the application responsible for the scene-level Gaussian renderer.
-Existing supported 3D Tiles content, including `EXT_splat_opacity` v1 and v2,
-does not need to be converted again.
+Existing supported 3D Tiles content does not need to be converted again.
 
 ## Why Gaussian Splat Lite
 
@@ -221,8 +220,7 @@ in the old `sparkRendererOptions`, then tune the Gaussian Splat Lite renderer
 for the application.
 
 `TilesFadePlugin`, explicit and implicit tiling, large GIS/ECEF coordinates,
-tile disposal, memory accounting, and `EXT_splat_opacity` v1/v2 remain
-supported.
+tile disposal, and memory accounting remain supported.
 
 ## Troubleshooting
 

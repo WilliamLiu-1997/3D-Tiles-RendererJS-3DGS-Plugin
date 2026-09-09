@@ -72,7 +72,7 @@ for the complete backend and default changes.
 ## Tile integration
 
 Explicit and implicit 3D Tiles, GIS/ECEF transforms, `TilesFadePlugin`, tile
-disposal, memory accounting, and `EXT_splat_opacity` v1/v2 remain supported.
+disposal, and memory accounting remain supported.
 `targetCoverageBoostScale` still defaults to `0.1`.
 
 This plugin continues to load glTF/GLB tile content with

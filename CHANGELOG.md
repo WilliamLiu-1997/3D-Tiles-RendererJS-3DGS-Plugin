@@ -36,14 +36,6 @@ Versioning.
 
 - Raised the minimum `gaussian-splat-lite` version to `0.1.13` so nested
   opacity post-decode guards short-circuit before output-only worker work.
-- Reduced `EXT_splat_opacity` post-decode worker programs when the retained
-  coverage boost is zero.
-
-### Fixed
-
-- Processed finite version 2 source opacity above `1000` according to the
-  extension's capped boost formula, and kept the SPZ fallback for values or
-  coverage strengths that cannot be represented safely by post-decode.
 
 ## [0.2.1] - 2026-08-28
 
@@ -70,9 +62,6 @@ Versioning.
   `GaussianSplatPluginOptions`.
 - Splat tiles now create Gaussian Splat Lite `SplatMesh` instances directly
   from SPZ bytes and use the library's built-in camera-relative rendering.
-- `EXT_splat_opacity` v1/v2 conversion now runs as a serializable `postDecode`
-  expression in the SPZ decode worker and passes semantic opacity in the
-  `[0, 1000]` range to Gaussian Splat Lite.
 - `TilesFadePlugin` integration now combines `fadeIn` and `fadeOut` coverage at
   render time without modifying decoded source opacity.
 - `minRaycastOpacity` now uses the Gaussian Splat Lite default when omitted.
@@ -105,29 +94,14 @@ Versioning.
 
 ### Added
 
-- Added `EXT_splat_opacity` version 2 support for converter-authored binary16
-  source opacity, normalized pre-boost `sMid / sMax` ratios, and
-  `opacity_anisotropic_v1` coverage metadata while preserving version 1
-  compatibility.
 - Added the `targetCoverageBoostScale` plugin option to cap the converter
-  coverage boost retained from version 2 content. It defaults to `0.1`, accepts
+  coverage boost retained from tile content. It defaults to `0.1`, accepts
   `0` to remove the recorded boost, and never increases the boost beyond the
   value recorded in the file.
 
 ### Changed
 
 - Raised the minimum supported Three.js version from `0.180.0` to `0.185.0`.
-- Version 2 processing retargets the recorded anisotropic scale boost, divides
-  source opacity by the retained two-axis area growth, and applies Spark's
-  high-opacity encoding. Splats with source opacity less than or equal to `1`
-  retain their SPZ-decoded scales and opacity.
-- Optimized version 2 loading for the converter's interleaved layout: the plugin
-  reads the already-loaded GLB bytes without copying or deinterleaving them and
-  validates and applies matched splats in one pass before Spark texture creation.
-- Version 2 extension buffers remain optional. Unsupported metadata and
-  malformed or unavailable accessors leave the complete SPZ fallback intact;
-  invalid individual values and unmatched splats keep their own SPZ-decoded
-  opacity and boosted scales while other valid splats can still be applied.
 - Reworked the shared example camera controller to consume rotate, drag, and
   zoom input through bounded damping, preserve interaction anchors and
   ellipsoid-up alignment, and track movement lifecycle events consistently.
@@ -141,8 +115,6 @@ Versioning.
 
 ### Fixed
 
-- Hardened `EXT_splat_opacity` accessor validation for component types,
-  normalization, strides, and declared and loaded byte bounds.
 - Kept the example camera pivot indicator visible briefly after interaction and
   above Gaussian splats with both standard and reversed depth buffers.
 - Fixed duplicate pointer coordinate conversion in the example camera
@@ -163,20 +135,9 @@ Versioning.
 
 ## [0.1.14] - 2026-06-19
 
-### Added
-
-- Added `EXT_splat_opacity` support for SPZ-compressed Gaussian splat
-  primitives so tiles can carry Spark-compatible per-splat opacity values in a
-  `FLOAT` / `SCALAR` accessor.
-- Added an `EXT_splat_opacity` extension note describing the extension shape,
-  accessor requirements, and value semantics.
-
 ### Changed
 
-- Split Gaussian splat fade handling and splat opacity extension loading into
-  focused helper modules.
-- Applied `EXT_splat_opacity` values before Spark texture creation so the
-  decoded splat data includes overrides during initial upload.
+- Split Gaussian splat fade handling into a focused helper module.
 
 ## [0.1.13] - 2026-06-08
 
