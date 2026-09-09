@@ -180,9 +180,7 @@ A tile is handled when:
 - Each Gaussian primitive uses `KHR_gaussian_splatting_compression_spz_2`
 
 Raw, uncompressed Gaussian primitives and other compression schemes are not
-supported. Tiles may also use `EXT_splat_opacity` v1 or v2; see
-[`EXT_splat_opacity.md`](EXT_splat_opacity.md) for its binary layout, processing
-rules, and fallback behavior.
+supported.
 
 ## API
 
