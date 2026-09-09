@@ -187,14 +187,12 @@ supported.
 ```ts
 new GaussianSplatPlugin({
   minRaycastOpacity: 0.15,
-  targetCoverageBoostScale: 0.1,
 });
 ```
 
 | Option | Default | Description |
 | --- | --- | --- |
 | `minRaycastOpacity` | Gaussian Splat Lite default (`0.15` in GSL 1.0) | Per-splat kernel-alpha threshold that clips the raycast hit area. Set an explicit value to preserve this threshold across GSL upgrades. |
-| `targetCoverageBoostScale` | `0.1` | Maximum converter coverage boost retained for tile content. Use `0` to remove it. |
 
 Public exports:
 
