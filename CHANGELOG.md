@@ -7,6 +7,23 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-01
+
+### Added
+
+- Support for uncompressed `KHR_gaussian_splatting` glTF/GLB tiles with sRGB
+  colors, SH0–SH3, and legacy `COLOR_0` and underscore-prefixed attributes.
+- Support for interleaved, normalized, sparse, and indexed Gaussian data,
+  including external buffers loaded through existing tile fetch hooks.
+- Background conversion of uncompressed tiles using Web Workers.
+
+### Changed
+
+- Require Gaussian Splat Lite `^1.6.0` and update the development version to `1.6.0`.
+- Raise the Three.js minimum to `0.187.0` and Node.js minimum to `22.12.0`
+  to match Gaussian Splat Lite 1.6.
+- Update development dependencies to resolve high-severity audit findings.
+
 ## [0.3.0] - 2026-09-09
 
 ### Added

@@ -1,11 +1,17 @@
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import {
+  collectRawGaussianBufferIndices,
+  getRawGaussianSource,
+  type GaussianPrimitiveRawSource,
+} from './raw/GaussianSplatRaw';
+import { convertRawGaussians } from './raw/GaussianSplatRawConversion';
+import {
   collectSplatOpacityBufferIndices,
   getSplatOpacityExtensionSource,
   loadSplatOpacityExtensionData,
   type SplatOpacityExtensionData,
   type SplatOpacityExtensionSource,
-} from './GaussianSplatOpacityExtension';
+} from './spz/GaussianSplatOpacityExtension';
 
 const _translation = new Vector3();
 const _rotation = new Quaternion();
@@ -22,22 +28,24 @@ export type GlbData = {
 };
 
 type GaussianPrimitiveSpzSource = {
+  kind: 'spz';
   bufferViewIndex: number;
   opacityExtensionSource: SplatOpacityExtensionSource | null;
 };
 
 type GaussianPrimitiveSpzData = {
+  kind: 'spz';
   bytes: Uint8Array;
   opacityExtensionData: SplatOpacityExtensionData | null;
 };
 
 export type GaussianSplatPrimitiveSource = {
-  data: GaussianPrimitiveSpzSource;
+  data: GaussianPrimitiveSpzSource | GaussianPrimitiveRawSource;
   matrix: Matrix4;
 };
 
 export type GaussianSplatPrimitiveDescriptor = {
-  data: GaussianPrimitiveSpzData;
+  data: GaussianPrimitiveSpzData | { kind: 'ply'; bytes: Uint8Array };
   matrix: Matrix4;
 };
 
@@ -173,7 +181,7 @@ function getBufferView(json: any, bufferViewIndex: number, label: string) {
 
 function getGaussianPrimitiveSource(
   primitive: any,
-): GaussianPrimitiveSpzSource | null {
+): GaussianSplatPrimitiveSource['data'] | null {
   const gaussianExtension = primitive?.extensions?.KHR_gaussian_splatting;
   if (!gaussianExtension) {
     return null;
@@ -182,12 +190,11 @@ function getGaussianPrimitiveSource(
   const compressionExtension =
     gaussianExtension.extensions?.KHR_gaussian_splatting_compression_spz_2;
   if (!compressionExtension) {
-    throw new Error(
-      'GaussianSplatPlugin: Raw gaussian splat primitives are no longer supported. Use KHR_gaussian_splatting_compression_spz_2.',
-    );
+    return getRawGaussianSource(primitive, gaussianExtension);
   }
 
   return {
+    kind: 'spz',
     bufferViewIndex: compressionExtension.bufferView,
     opacityExtensionSource: getSplatOpacityExtensionSource(
       primitive,
@@ -200,7 +207,7 @@ function loadGaussianPrimitiveData(
   json: any,
   buffers: GaussianBufferCollection,
   source: GaussianPrimitiveSpzSource,
-) {
+): GaussianSplatPrimitiveDescriptor['data'] {
   const { bufferViewIndex, opacityExtensionSource } = source;
   const bufferView = getBufferView(json, bufferViewIndex, 'SPZ');
   const bufferIndex = bufferView.buffer ?? 0;
@@ -219,6 +226,7 @@ function loadGaussianPrimitiveData(
   }
 
   return {
+    kind: 'spz',
     bytes: binaryChunk.subarray(byteOffset, byteEnd),
     opacityExtensionData: loadSplatOpacityExtensionData(
       json,
@@ -236,6 +244,12 @@ export function collectGaussianBufferIndices(
   const optionalBufferIndices = new Set<number>();
 
   for (const source of sources) {
+    if (source.data.kind === 'raw') {
+      for (const index of collectRawGaussianBufferIndices(json, source.data)) {
+        requiredBufferIndices.add(index);
+      }
+      continue;
+    }
     const spzBufferView = getBufferView(
       json,
       source.data.bufferViewIndex,
@@ -336,13 +350,24 @@ export function buildGaussianPrimitiveSources(json: any) {
   return descriptors.length > 0 ? descriptors : null;
 }
 
-export function buildGaussianDescriptors(
+export async function buildGaussianDescriptors(
   json: any,
   buffers: GaussianBufferCollection,
   sources: readonly GaussianSplatPrimitiveSource[],
-) {
+  abortSignal: AbortSignal,
+): Promise<GaussianSplatPrimitiveDescriptor[]> {
+  const rawSources = sources.flatMap((source) =>
+    source.data.kind === 'raw' ? [source.data] : [],
+  );
+  const converted = rawSources.length
+    ? await convertRawGaussians(json, buffers, rawSources, abortSignal)
+    : [];
+  let rawIndex = 0;
   return sources.map((source) => ({
-    data: loadGaussianPrimitiveData(json, buffers, source.data),
+    data:
+      source.data.kind === 'raw'
+        ? { kind: 'ply', bytes: converted[rawIndex++] }
+        : loadGaussianPrimitiveData(json, buffers, source.data),
     matrix: source.matrix,
   }));
 }

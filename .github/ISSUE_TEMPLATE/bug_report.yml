@@ -22,7 +22,7 @@ body:
     id: three_version
     attributes:
       label: three.js version
-      placeholder: 0.186.0
+      placeholder: 0.187.0
     validations:
       required: true
 
@@ -38,7 +38,7 @@ body:
     id: gaussian_splat_lite_version
     attributes:
       label: Gaussian Splat Lite version
-      placeholder: 1.0.0
+      placeholder: 1.6.0
     validations:
       required: true
 

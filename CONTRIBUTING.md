@@ -4,7 +4,7 @@ Thanks for contributing to `3d-tiles-rendererjs-3dgs-plugin`.
 
 ## Development setup
 
-Development requires Node.js 20.9 or newer. Dependencies are installed from
+Development requires Node.js 22.12.0 or newer. Dependencies are installed from
 npm, and no sibling Gaussian Splat Lite checkout is required.
 
 ```bash
@@ -23,7 +23,7 @@ npm run pack:check
 ```
 
 `pack:check` inspects the npm tarball and runs `publint`. CI runs the complete
-release check on Node.js 20, 22, and 24 on Linux, plus Node.js 22 on Windows.
+release check on Node.js 22.12.0, 22, and 24 on Linux, plus Node.js 22 on Windows.
 
 ## Pull requests
 

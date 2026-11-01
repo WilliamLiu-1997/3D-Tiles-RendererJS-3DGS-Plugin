@@ -15,16 +15,16 @@
 Stream 3D Gaussian Splatting tiles into Three.js with
 [`3d-tiles-renderer`](https://github.com/NASA-AMMOS/3DTilesRendererJS) and
 [`Gaussian Splat Lite`](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite).
-**WebGPU and WebGL2 are supported through Gaussian Splat Lite 1.0.**
+**WebGPU and WebGL2 are supported through Gaussian Splat Lite 1.6.**
 
-The plugin loads glTF/GLB tile payloads that use `KHR_gaussian_splatting` with
-`KHR_gaussian_splatting_compression_spz_2`. It supports explicit and implicit
-3D Tiles, tile disposal and memory accounting, large GIS/ECEF coordinates, and
+The plugin loads standard uncompressed and SPZ-compressed Gaussian splat
+tiles in glTF/GLB format. It supports explicit and implicit 3D Tiles, tile
+disposal and memory accounting, large GIS/ECEF coordinates, and
 `TilesFadePlugin` transitions.
 
 > [!IMPORTANT]
-> **Upgrading to 0.3?** Update Gaussian Splat Lite to `^1.0.0` and Three.js
-> to `>=0.186.0`. Review the renderer and raycast default changes in the
+> **Upgrading to 0.3?** Update Gaussian Splat Lite to `^1.6.0` and Three.js
+> to `>=0.187.0`. Review the renderer and raycast default changes in the
 > [0.2.x to 0.3.x migration guide](docs/migration-0.3.md).
 > For applications still on 0.1.x, follow the
 > [Spark-to-GSL migration guide](migration.md) first.
@@ -43,9 +43,9 @@ handles tile loading, transforms, fading, and disposal.
 
 ## Requirements
 
-- `three@>=0.186.0`
+- `three@>=0.187.0`
 - `3d-tiles-renderer@^0.5.0`
-- `gaussian-splat-lite@^1.0.0`
+- `gaussian-splat-lite@^1.6.0`
 - A browser with WebAssembly, Web Workers, ES modules, and WebGPU or WebGL2
 - Native WebGPU requires a compatible browser/GPU and a secure context
   (HTTPS or localhost)
@@ -53,7 +53,7 @@ handles tile loading, transforms, fading, and disposal.
 ## Installation
 
 ```bash
-npm install 3d-tiles-rendererjs-3dgs-plugin@^0.3.0 gaussian-splat-lite@^1.0.0 three@^0.186.0 3d-tiles-renderer@^0.5.0
+npm install 3d-tiles-rendererjs-3dgs-plugin@^0.3.1 gaussian-splat-lite@^1.6.0 three@^0.187.0 3d-tiles-renderer@^0.5.0
 ```
 
 ## Quick start
@@ -173,14 +173,11 @@ rendering setup, see the
 
 ## Supported content
 
-A tile is handled when:
+Standard uncompressed and SPZ-compressed Gaussian splat tiles are supported
+in glTF/GLB format. Both work with the same plugin setup.
 
-- The tile content is `gltf` or `glb`
-- The glTF scene contains `KHR_gaussian_splatting`
-- Each Gaussian primitive uses `KHR_gaussian_splatting_compression_spz_2`
-
-Raw, uncompressed Gaussian primitives and other compression schemes are not
-supported.
+Uncompressed tiles currently require sRGB colors. Other compression formats
+are not supported.
 
 ## API
 
@@ -207,7 +204,7 @@ import {
 
 The [`examples/`](examples/) WebGL2 demo includes explicit and implicit sample
 tilesets, a globe, tileset switching, and LOD controls. Development requires
-Node.js 20.9 or newer.
+Node.js 22.12.0 or newer.
 
 The sample data in [`data/`](data/) was converted from PLY-format 3D Gaussian
 Splatting files with

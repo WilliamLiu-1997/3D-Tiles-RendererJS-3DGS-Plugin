@@ -17,7 +17,7 @@ import {
 import {
   DEFAULT_TARGET_COVERAGE_BOOST_SCALE,
   createSplatOpacityPostDecode,
-} from './GaussianSplatOpacityExtension';
+} from './spz/GaussianSplatOpacityExtension';
 import {
   createGaussianFadeMaterial,
   type GaussianSplatFadeMaterial,
@@ -60,7 +60,7 @@ function makeGaussianSceneMatrix(
   tile: TileWithEngineData,
 ) {
   const target = _sceneMatrix.identity();
-  // NOTE: _upRotationMatrix is an internal API of TilesRenderer — may change across versions.
+  // Internal TilesRenderer up-axis correction.
   const upRotationMatrix = (
     tiles as TilesRenderer & { _upRotationMatrix?: Matrix4 }
   )._upRotationMatrix;
@@ -128,6 +128,7 @@ export class GaussianSplatPlugin {
   #minRaycastOpacity: SplatMeshOptions['minRaycastOpacity'];
   #targetCoverageBoostScale: number;
   #lifecycleGeneration = 0;
+  #conversionAbortController = new AbortController();
   #splatMeshesByScene = new WeakMap<Group, readonly SplatMesh[]>();
 
   constructor({
@@ -148,6 +149,8 @@ export class GaussianSplatPlugin {
   }
 
   init(tiles: TilesRenderer) {
+    this.#conversionAbortController.abort();
+    this.#conversionAbortController = new AbortController();
     this.#lifecycleGeneration++;
     this.tiles = tiles;
   }
@@ -157,6 +160,7 @@ export class GaussianSplatPlugin {
 
     this.#lifecycleGeneration++;
     const tiles = this.tiles;
+    this.#conversionAbortController.abort();
 
     tiles.forEachLoadedModel((scene) => {
       this.#disposeSplatScene(scene as Group);
@@ -191,13 +195,17 @@ export class GaussianSplatPlugin {
   ) {
     abortSignal.throwIfAborted();
 
+    const { data } = descriptor;
     const mesh = new SplatMesh({
-      fileBytes: descriptor.data.bytes,
-      fileType: SplatFileType.SPZ,
-      postDecode: createSplatOpacityPostDecode(
-        descriptor.data.opacityExtensionData,
-        this.#targetCoverageBoostScale,
-      ),
+      fileBytes: data.bytes,
+      fileType: data.kind === 'spz' ? SplatFileType.SPZ : SplatFileType.PLY,
+      postDecode:
+        data.kind === 'spz'
+          ? createSplatOpacityPostDecode(
+              data.opacityExtensionData,
+              this.#targetCoverageBoostScale,
+            )
+          : undefined,
       minRaycastOpacity: this.#minRaycastOpacity,
     }) as GaussianSplatMesh;
 
@@ -230,6 +238,7 @@ export class GaussianSplatPlugin {
     }
 
     const lifecycleGeneration = this.#lifecycleGeneration;
+    const pluginSignal = this.#conversionAbortController.signal;
     const isStale = () =>
       abortSignal.aborted ||
       this.#lifecycleGeneration !== lifecycleGeneration;
@@ -281,7 +290,27 @@ export class GaussianSplatPlugin {
         return null;
       }
 
-      const descriptors = buildGaussianDescriptors(json, buffers, sources);
+      // Cancel conversion when either the tile or plugin is cancelled.
+      const conversion = new AbortController();
+      const abortConversion = () => conversion.abort();
+      abortSignal.addEventListener('abort', abortConversion);
+      pluginSignal.addEventListener('abort', abortConversion);
+      let descriptors: GaussianSplatPrimitiveDescriptor[];
+      try {
+        descriptors = await buildGaussianDescriptors(
+          json,
+          buffers,
+          sources,
+          conversion.signal,
+        );
+      } catch (error) {
+        if (isStale()) return null;
+        throw error;
+      } finally {
+        abortSignal.removeEventListener('abort', abortConversion);
+        pluginSignal.removeEventListener('abort', abortConversion);
+      }
+      if (isStale()) return null;
       const sceneMatrix = makeGaussianSceneMatrix(tiles, tile);
 
       const scene = new Group();

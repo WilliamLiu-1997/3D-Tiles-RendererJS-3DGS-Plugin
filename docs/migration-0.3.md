@@ -1,18 +1,18 @@
 # Migrating from 0.2.x to 0.3.x
 
-Version 0.3 updates the rendering dependency to Gaussian Splat Lite 1.0 and
-adds support for Three.js `WebGPURenderer`. The `GaussianSplatPlugin`
-constructor and tile format requirements are unchanged. Existing supported
+The current dependency baseline is Gaussian Splat Lite 1.6 and Three.js
+0.187.0. The `GaussianSplatPlugin` constructor is unchanged, and existing
 SPZ-compressed glTF/GLB tiles do not need to be converted again.
+Uncompressed Gaussian glTF/GLB tiles are also supported.
 
 ## Update dependencies
 
 ```bash
-npm install 3d-tiles-rendererjs-3dgs-plugin@^0.3.0 gaussian-splat-lite@^1.0.0 three@^0.186.0 3d-tiles-renderer@^0.5.0
+npm install 3d-tiles-rendererjs-3dgs-plugin@^0.3.1 gaussian-splat-lite@^1.6.0 three@^0.187.0 3d-tiles-renderer@^0.5.0
 ```
 
-The minimum Three.js version is now `0.186.0`. GSL `0.1.x` is outside the
-supported dependency range for this release.
+Use Node.js `22.12.0` or newer and Three.js `0.187.0` or newer.
+Gaussian Splat Lite versions below `1.6.0` are outside the supported range.
 
 ## Choose a renderer
 
@@ -75,8 +75,9 @@ Explicit and implicit 3D Tiles, GIS/ECEF transforms, `TilesFadePlugin`, tile
 disposal, and memory accounting remain supported.
 `targetCoverageBoostScale` still defaults to `0.1`.
 
-This plugin continues to load glTF/GLB tile content with
-`KHR_gaussian_splatting` and `KHR_gaussian_splatting_compression_spz_2`.
+This plugin loads glTF/GLB tile content with `KHR_gaussian_splatting`, either
+uncompressed with sRGB colors or compressed with
+`KHR_gaussian_splatting_compression_spz_2`.
 GSL's standalone PLY, SOG, RAD, and streaming scheduler APIs do not add new
 3D Tiles payload formats to this plugin.
 
